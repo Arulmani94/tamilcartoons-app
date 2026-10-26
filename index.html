@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080b10">
+<title>TamilCartoons — Anime Library</title>
+<meta name="description" content="Browse anime, cartoons, seasons and episodes on TamilCartoons.">
+<style>
+:root{--bg:#070a0f;--panel:#10151e;--panel2:#151c27;--line:#27313d;--text:#f4f7fb;--muted:#9aa7b7;--green:#20d58a;--green2:#0eaa6b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#17362d 0,transparent 42%),var(--bg);color:var(--text);font-family:Inter,Arial,sans-serif;padding-bottom:78px}
+header{height:66px;position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;padding:0 5%;background:#080c12eF;border-bottom:1px solid #ffffff12;backdrop-filter:blur(18px)}
+.logo{font-size:21px;font-weight:900;letter-spacing:-.8px;white-space:nowrap}.logo span{color:var(--green)}
+.search{margin-left:auto;width:min(360px,48vw);border:1px solid var(--line);background:#121923;color:white;border-radius:24px;padding:11px 16px;outline:none}.search:focus{border-color:var(--green)}
+main{width:min(1260px,92%);margin:auto}.hero{margin:24px 0 28px;padding:clamp(24px,5vw,48px);border:1px solid #2a4a40;border-radius:22px;background:linear-gradient(115deg,#102b24,#111925 60%,#202033);position:relative;overflow:hidden}
+.eyebrow{font-size:11px;letter-spacing:2px;color:#77e8b6;font-weight:800}.hero h1{font-size:clamp(27px,5vw,46px);margin:13px 0 10px;letter-spacing:-1.3px}.hero p{max-width:600px;color:#b7c4cf;line-height:1.65;font-size:14px}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:27px 0 15px}.section-head h2{font-size:20px;margin:0}.hint{color:var(--muted);font-size:12px}
+.categories{display:flex;gap:9px;overflow:auto;padding:0 0 8px}.category{flex-shrink:0;border:1px solid var(--line);background:#111720;color:#cbd4de;border-radius:22px;padding:9px 15px;cursor:pointer}.category.active,.category:hover{background:var(--green2);border-color:var(--green2);color:#03140c}
+.grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:18px}.card{cursor:pointer;min-width:0}.card:hover .poster{transform:translateY(-3px);border-color:#4c806b}.poster{aspect-ratio:3/4;position:relative;border:1px solid var(--line);border-radius:13px;background:linear-gradient(140deg,#1c2d31,#171b27);overflow:hidden;transition:.2s;display:grid;place-items:center}.poster img{position:absolute;width:100%;height:100%;inset:0;object-fit:cover}.poster .fallback{font-size:34px}.card h3{font-size:13px;line-height:1.4;margin:9px 0 4px}.card p{font-size:11px;color:var(--muted);line-height:1.5;margin:0}
+.panel{display:none;margin:25px 0;padding:20px;border:1px solid var(--line);border-radius:17px;background:linear-gradient(140deg,#111923,#0e121a)}.panel.show{display:block}.panel-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.panel h2{font-size:22px;margin:0 0 8px}.panel p{color:var(--muted);font-size:13px;line-height:1.6}.close{background:#1a2430;color:white;border:1px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer}
+.season-tabs{display:flex;gap:8px;overflow:auto;margin:17px 0}.season-tab{flex-shrink:0;border:1px solid var(--line);background:#131b25;color:#dce6ee;padding:9px 13px;border-radius:10px;cursor:pointer}.season-tab.active{border-color:var(--green);color:var(--green);background:#10251e}
+.episode-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.episode{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid #26313d;background:#0b1017;color:white;border-radius:12px;padding:12px;cursor:pointer;min-width:0}.episode:hover{border-color:var(--green)}.ep-play{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:10px;background:#173c2e;color:#69f2b3}.ep-title{font-size:13px;font-weight:700;line-height:1.4}.ep-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.message{grid-column:1/-1;padding:22px 0;color:var(--muted);font-size:14px;line-height:1.6}.bottom{position:fixed;bottom:0;left:0;right:0;z-index:20;display:flex;justify-content:space-around;padding:13px 5px;background:#0c1119f2;border-top:1px solid var(--line);backdrop-filter:blur(12px)}.bottom a{color:#b9c4cf;text-decoration:none;font-size:12px}.bottom a:first-child{color:var(--green)}footer{text-align:center;color:#687585;font-size:12px;padding:38px 10px}
+@media(max-width:1000px){.grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}}
+@media(max-width:620px){header{height:auto;min-height:60px;padding:12px 4%;flex-wrap:wrap;gap:10px}.logo{font-size:19px}.search{order:3;width:100%;max-width:none}main{width:92%}.hero{margin-top:16px;border-radius:16px}.grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:13px 10px}.card h3{font-size:12px}.episode-list{grid-template-columns:1fr}.panel{padding:15px}}
+@media(max-width:360px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header><div class="logo">Tamil<span>Cartoons</span></div><input id="search" class="search" type="search" placeholder="Search anime and cartoons…" aria-label="Search anime"></header>
+<main>
+<section class="hero"><div class="eyebrow">YOUR ANIME WORLD</div><h1>Every episode. One place.</h1><p>Explore your anime and cartoon collection, choose a season, and continue watching in a premium player experience.</p></section>
+<div class="section-head"><h2>Browse Categories</h2><span class="hint">Tap a title to view episodes</span></div>
+<div class="categories" id="categories"><button class="category active" data-category="All">All</button><button class="category" data-category="Tamil Dubbed">Tamil Dubbed</button><button class="category" data-category="Anime">Anime</button><button class="category" data-category="Cartoons">Cartoons</button><button class="category" data-category="Action">Action</button></div>
+<div class="section-head"><h2>✦ Latest Anime &amp; Cartoons</h2><span class="hint" id="countLabel"></span></div>
+<div class="grid" id="animeGrid"><p class="message">Loading anime library…</p></div>
+<section class="panel" id="detailsPanel"><div class="panel-top"><div><h2 id="detailTitle">Anime</h2><p id="detailDescription"></p></div><button class="close" id="closeDetails">Close ✕</button></div><div class="season-tabs" id="seasonTabs"></div><div class="episode-list" id="episodeList"><p class="message">Choose a season.</p></div></section>
+<footer>TamilCartoons · Anime &amp; cartoons library</footer>
+</main>
+<nav class="bottom"><a href="#" id="homeLink">⌂ Home</a><a href="#categories">▦ Categories</a><a href="#search" id="searchLink">⌕ Search</a></nav>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* Use the existing public/publishable key. Never place a service_role/secret key here. */
+const SUPABASE_URL="https://bqrqxzujqfqvyfbshovc.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_wniZClCChMPoUl7RQ8M-Ng__3ch7nSx";
+/* Set this to the deployed Python backend URL after backend hosting, e.g. https://your-api.example.com */
+const PLAYER_PAGE_URL="./player.html";
+let db=null, animeList=[], activeCategory="All", currentAnime=null, seasons=[];
+const $=id=>document.getElementById(id);
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function renderAnime(){
+ const q=$("search").value.toLowerCase().trim();
+ const filtered=animeList.filter(a=>{
+  const hay=[a.name,a.description,a.storyline].join(" ").toLowerCase();
+  const matchesSearch=hay.includes(q);
+  /* Current schema has no category column; don't falsely hide items for non-All filters. */
+  const matchesCategory=activeCategory==="All" || !a.category || String(a.category).toLowerCase()===activeCategory.toLowerCase();
+  return matchesSearch&&matchesCategory;
+ });
+ $("countLabel").textContent=filtered.length+" titles";
+ $("animeGrid").innerHTML=filtered.length?filtered.map(a=>{
+  const title=esc(a.name||"Untitled Anime"), poster=String(a.poster_url||"").trim();
+  return `<article class="card" data-id="${Number(a.id)}"><div class="poster">${poster?`<img src="${esc(poster)}" alt="${title}" loading="lazy" onerror="this.remove()">`:""}<span class="fallback">🎬</span></div><h3>${title}</h3><p>${esc(a.description||"Anime series")}</p></article>`;
+ }).join(""):'<p class="message">No matching titles. Try another search.</p>';
+}
+async function loadAnime(){
+ if(!window.supabase){$("animeGrid").innerHTML='<p class="message">Supabase library failed to load. Check internet and refresh.</p>';return;}
+ db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+ try{
+  const {data,error}=await db.from("anime").select("id,name,description,storyline,poster_url,created_at").order("created_at",{ascending:false});
+  if(error)throw error;animeList=data||[];renderAnime();
+ }catch(e){console.error(e);$("animeGrid").innerHTML='<p class="message">Could not load the anime library. Check Supabase read permissions and connection.</p>';}
+}
+async function openAnime(id){
+ const a=animeList.find(x=>Number(x.id)===Number(id));if(!a)return;currentAnime=a;
+ $("detailsPanel").classList.add("show");$("detailTitle").textContent=a.name||"Anime";$("detailDescription").textContent=a.storyline||a.description||"Choose a season and episode.";
+ $("seasonTabs").innerHTML='<span class="hint">Loading seasons…</span>';$("episodeList").innerHTML='<p class="message">Loading episodes…</p>';
+ $("detailsPanel").scrollIntoView({behavior:"smooth",block:"start"});
+ try{
+  const {data,error}=await db.from("seasons").select("id,anime_id,season_number,season_name,created_at").eq("anime_id",a.id).order("season_number",{ascending:true});
+  if(error)throw error;seasons=data||[];
+  if(!seasons.length){$("seasonTabs").innerHTML="";$("episodeList").innerHTML='<p class="message">No seasons added yet. Add seasons in Admin Dashboard.</p>';return;}
+  $("seasonTabs").innerHTML=seasons.map((s,i)=>`<button class="season-tab ${i===0?"active":""}" data-season="${Number(s.id)}">${esc(s.season_name||("Season "+s.season_number))}</button>`).join("");
+  await openSeason(seasons[0].id);
+ }catch(e){console.error(e);$("seasonTabs").innerHTML="";$("episodeList").innerHTML='<p class="message">Could not load seasons. Check Supabase policies and column names.</p>';}
+}
+async function openSeason(seasonId){
+ $("seasonTabs").querySelectorAll("button").forEach(b=>b.classList.toggle("active",Number(b.dataset.season)===Number(seasonId)));
+ $("episodeList").innerHTML='<p class="message">Loading episodes…</p>';
+ try{
+  const {data,error}=await db.from("episodes").select("id,season_id,episode_number,telegram_channel_id,telegram_message_id,telegram_link,created_at").eq("season_id",seasonId).order("episode_number",{ascending:true});
+  if(error)throw error;
+  if(!data||!data.length){$("episodeList").innerHTML='<p class="message">No episodes added to this season yet.</p>';return;}
+  const s=seasons.find(x=>Number(x.id)===Number(seasonId));
+  $("episodeList").innerHTML=data.map((ep,i)=>{
+   const num=Number(ep.episode_number)||i+1, title=`Episode ${num}`;
+   return `<button class="episode" data-episode="${Number(ep.id)}"><span class="ep-play">▶</span><span><span class="ep-title">${esc(title)}</span><span class="ep-sub">${esc(s?.season_name||("Season "+(s?.season_number||""))) } · Tap to watch</span></span></button>`;
+  }).join("");
+  $("episodeList").querySelectorAll(".episode").forEach((b,i)=>b.addEventListener("click",()=>watchEpisode(data[i],s,data)));
+ }catch(e){console.error(e);$("episodeList").innerHTML='<p class="message">Could not load episodes. Verify the episodes table and read permissions.</p>';}
+}
+function watchEpisode(ep,season,all){
+ let channel=ep.telegram_channel_id, message=ep.telegram_message_id;
+ if((!channel||!message)&&ep.telegram_link){
+  const m=String(ep.telegram_link).match(/t\.me\/c\/(\d+)\/(\d+)/);
+  if(m){channel="-100"+m[1];message=m[2];}
+  else {const p=String(ep.telegram_link).match(/t\.me\/([^/]+)\/(\d+)/);if(p&&p[1]!=="c"){channel="@"+p[1];message=p[2];}}
+ }
+ if(!channel||!message){alert("This episode needs a Telegram channel ID and message ID. Update it in Admin Dashboard.");return;}
+ const url=new URL(PLAYER_PAGE_URL,location.href);
+ url.searchParams.set("channel_id",channel);url.searchParams.set("message_id",message);
+ url.searchParams.set("title",currentAnime?.name||"Anime");url.searchParams.set("episode",ep.episode_number||"");
+ url.searchParams.set("season",season?.season_name||("Season "+(season?.season_number||"")));
+ url.searchParams.set("anime_id",currentAnime?.id||"");url.searchParams.set("season_id",season?.id||"");
+ const ids=all.map(x=>x.id);url.searchParams.set("episode_ids",ids.join(","));url.searchParams.set("index",String(all.findIndex(x=>x.id===ep.id)));
+ location.href=url.toString();
+}
+$("animeGrid").addEventListener("click",e=>{const card=e.target.closest(".card");if(card)openAnime(card.dataset.id);});
+$("seasonTabs").addEventListener("click",e=>{const b=e.target.closest("[data-season]");if(b)openSeason(b.dataset.season);});
+$("search").addEventListener("input",renderAnime);
+document.querySelectorAll(".category").forEach(b=>b.addEventListener("click",()=>{document.querySelectorAll(".category").forEach(x=>x.classList.remove("active"));b.classList.add("active");activeCategory=b.dataset.category;renderAnime();}));
+$("closeDetails").addEventListener("click",()=>$("detailsPanel").classList.remove("show"));
+$("homeLink").addEventListener("click",e=>{e.preventDefault();window.scrollTo({top:0,behavior:"smooth"});});
+$("searchLink").addEventListener("click",()=>$("search").focus());
+loadAnime();
+</script>
+</body>
+</html>

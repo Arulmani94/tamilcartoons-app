@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#070a0f">
+<title>Watch Episode — TamilCartoons</title>
+<style>
+:root{--bg:#070a0f;--panel:#111720;--line:#28333f;--text:#f4f7fb;--muted:#9aa8b7;--green:#20d58a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -10%,#16392c,transparent 45%),var(--bg);color:var(--text);font-family:Inter,Arial,sans-serif}
+header{height:62px;display:flex;align-items:center;padding:0 5%;border-bottom:1px solid #ffffff12;background:#080c12eF}.logo{font-weight:900;font-size:20px;text-decoration:none;color:white}.logo span{color:var(--green)}
+main{width:min(1120px,94%);margin:22px auto 60px}.back{color:#b6c5d1;text-decoration:none;font-size:13px;display:inline-block;margin:0 0 14px}.player{position:relative;aspect-ratio:16/9;background:#000;border:1px solid #29333e;border-radius:16px;overflow:hidden;box-shadow:0 24px 75px #0008}video{width:100%;height:100%;display:block;background:#000;object-fit:contain}.error{display:none;position:absolute;inset:0;align-items:center;justify-content:center;text-align:center;padding:25px;background:#000d;color:#fff;line-height:1.7}.error.show{display:flex}.below{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:20px;align-items:start;margin-top:20px}.label{font-size:10px;letter-spacing:1.7px;color:var(--green);font-weight:800}.title{font-size:clamp(21px,4vw,30px);margin:8px 0}.sub{color:var(--muted);font-size:13px;line-height:1.6}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.btn{border:1px solid var(--line);background:#151c25;color:#e8f0f7;padding:10px 14px;border-radius:11px;cursor:pointer;font-size:12px}.btn.primary{background:var(--green);color:#042115;border-color:var(--green);font-weight:800}.settings{margin-top:22px;padding:18px;border:1px solid var(--line);background:#10151d;border-radius:15px}.settings h2{font-size:16px;margin:0 0 13px}.setting-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0;color:var(--muted);font-size:12px}.setting-row label{min-width:110px}.setting-row select,.setting-row input[type=number],.setting-row input[type=color]{background:#0a0e14;color:white;border:1px solid var(--line);border-radius:8px;padding:8px}.setting-row input[type=range]{accent-color:var(--green)}.note{font-size:12px;color:#8493a3;line-height:1.65;margin-top:13px}.status{color:#86e8b7;font-size:12px;margin-top:12px}.navrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}.navrow .btn{min-width:135px}
+@media(max-width:650px){header{height:56px;padding:0 4%}main{width:100%;margin-top:0}.back{margin:14px 4%}.player{border-radius:0;border-left:0;border-right:0}.below{grid-template-columns:1fr;margin:18px 4%}.settings{margin:18px 4%;padding:15px}.navrow{margin:18px 4%}.title{font-size:22px}}
+</style>
+</head>
+<body>
+<header><a class="logo" href="./index.html">Tamil<span>Cartoons</span></a></header>
+<main>
+<a class="back" href="./index.html">‹ Back to anime library</a>
+<section class="player" id="playerBox">
+<video id="video" controls playsinline preload="metadata"></video>
+<div class="error" id="errorBox"><div><strong>Unable to play this video</strong><br><span id="errorText">Check the backend URL, Telegram message and video format.</span><br><button class="btn" onclick="location.reload()">Retry</button></div></div>
+</section>
+<section class="below"><div><div class="label">NOW PLAYING</div><h1 class="title" id="title">Anime Episode</h1><div class="sub" id="meta">Loading episode details…</div><div class="status" id="status">Connecting to video server…</div></div></section>
+<div class="navrow"><button class="btn" id="prevBtn">‹ Previous Episode</button><button class="btn primary" id="nextBtn">Next Episode ›</button><button class="btn" id="fullscreenBtn">⛶ Fullscreen</button></div>
+<section class="settings"><h2>Playback settings</h2>
+<div class="setting-row"><label for="subtitleFile">External subtitles</label><input id="subtitleFile" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip"><span>Choose .SRT or .VTT</span></div>
+<div class="setting-row"><label for="subtitleSize">Subtitle size</label><input id="subtitleSize" type="range" min="12" max="36" value="20"><span id="sizeValue">20px</span></div>
+<div class="setting-row"><label for="subtitleColor">Subtitle colour</label><input id="subtitleColor" type="color" value="#ffffff"></div>
+<div class="setting-row"><label for="subtitleBg">Subtitle background</label><select id="subtitleBg"><option value="rgba(0,0,0,.75)">Dark</option><option value="transparent">Transparent</option><option value="rgba(10,40,25,.8)">Green tint</option></select></div>
+<div class="setting-row"><label for="audioSelect">Audio track</label><select id="audioSelect" disabled><option>Checking browser support…</option></select></div>
+<div class="note">Subtitle files are selected locally in your browser; they are not uploaded. Audio-track switching is available only when the browser exposes alternate tracks and the video format supports them. Telegram MKV or unsupported codecs may need server-side FFmpeg/HLS conversion.</div>
+</section>
+</main>
+<script>
+/* Set this to your deployed FastAPI backend origin, with no trailing slash. */
+const BACKEND_BASE_URL="http://127.0.0.1:8000";
+const params=new URLSearchParams(location.search);
+const channel=params.get("channel_id"), message=params.get("message_id");
+const video=document.getElementById("video"), statusEl=document.getElementById("status");
+let subtitleObjectURL=null;
+function showError(message){document.getElementById("errorBox").classList.add("show");document.getElementById("errorText").textContent=message;statusEl.textContent="Playback error";}
+function safeText(v){return String(v||"").replace(/[<>]/g,"");}
+document.getElementById("title").textContent=safeText(params.get("title"))||"Anime Episode";
+document.getElementById("meta").textContent=[safeText(params.get("season")),params.get("episode")?"Episode "+safeText(params.get("episode")):""].filter(Boolean).join(" · ");
+if(!channel||!message){showError("Missing Telegram channel_id or message_id in the player URL.");}
+else{
+ const url=new URL(BACKEND_BASE_URL+"/video");url.searchParams.set("channel_id",channel);url.searchParams.set("message_id",message);
+ video.src=url.toString();video.load();
+}
+video.addEventListener("loadedmetadata",()=>{statusEl.textContent="Video metadata loaded. Press play to watch.";});
+video.addEventListener("playing",()=>{statusEl.textContent="Playing.";});
+video.addEventListener("waiting",()=>{statusEl.textContent="Buffering…";});
+video.addEventListener("error",()=>{showError("The server responded, but this browser may not support the file/container codec. Check the Python server log. Raw MKV often needs FFmpeg/HLS conversion.");});
+document.getElementById("fullscreenBtn").addEventListener("click",async()=>{try{if(!document.fullscreenElement)await document.getElementById("playerBox").requestFullscreen();else await document.exitFullscreen();}catch(e){statusEl.textContent="Fullscreen is not supported on this device.";}});
+
+function srtToVtt(s){let clean=s.replace(/^\uFEFF/,"").replace(/\r+/g,"").trim();if(!clean.startsWith("WEBVTT"))clean="WEBVTT\n\n"+clean.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g,"$1.$2");return clean;}
+document.getElementById("subtitleFile").addEventListener("change",e=>{
+ const file=e.target.files?.[0];if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+  if(subtitleObjectURL)URL.revokeObjectURL(subtitleObjectURL);
+  const text=String(reader.result||"");
+  const vtt=srtToVtt(text);
+  subtitleObjectURL=URL.createObjectURL(new Blob([vtt],{type:"text/vtt"}));
+  video.querySelectorAll("track[data-external='1']").forEach(t=>t.remove());
+  const track=document.createElement("track");track.kind="subtitles";track.label=file.name;track.srclang="ta";track.src=subtitleObjectURL;track.default=true;track.dataset.external="1";video.appendChild(track);
+  track.addEventListener("load",()=>{for(const t of video.textTracks)t.mode="showing";statusEl.textContent="Subtitle loaded: "+file.name;});
+  setTimeout(()=>{for(const t of video.textTracks)t.mode="showing";},300);
+ };
+ reader.readAsText(file);
+});
+function updateSubtitleStyle(){const size=document.getElementById("subtitleSize").value,color=document.getElementById("subtitleColor").value,bg=document.getElementById("subtitleBg").value;document.getElementById("sizeValue").textContent=size+"px";const styleId="subtitleStyle";let style=document.getElementById(styleId);if(!style){style=document.createElement("style");style.id=styleId;document.head.appendChild(style);}style.textContent=`video::cue { font-size:${size}px; color:${color}; background-color:${bg}; }`;}
+["subtitleSize","subtitleColor","subtitleBg"].forEach(id=>document.getElementById(id).addEventListener("input",updateSubtitleStyle));updateSubtitleStyle();
+function setupAudioTracks(){
+ const select=document.getElementById("audioSelect"), tracks=video.audioTracks;
+ if(!tracks){select.innerHTML='<option>Not supported by this browser</option>';return;}
+ const refresh=()=>{select.innerHTML="";if(!tracks.length){select.add(new Option("No alternate audio tracks detected",""));select.disabled=true;return;}select.disabled=false;for(let i=0;i<tracks.length;i++){select.add(new Option(tracks[i].label||("Audio "+(i+1)),String(i)));}select.value=String([...tracks].findIndex(t=>t.enabled)>=0?[...tracks].findIndex(t=>t.enabled):0);};
+ try{refresh();tracks.addEventListener?.("addtrack",refresh);tracks.addEventListener?.("removetrack",refresh);select.addEventListener("change",()=>{for(let i=0;i<tracks.length;i++)tracks[i].enabled=i===Number(select.value);});}catch(e){select.innerHTML='<option>Not supported by this browser</option>';select.disabled=true;}
+}
+setupAudioTracks();
+function goEpisode(delta){
+ const ids=(params.get("episode_ids")||"").split(",").filter(Boolean).map(Number),index=Number(params.get("index")||0),target=index+delta;
+ if(target<0||target>=ids.length){statusEl.textContent=delta<0?"This is the first episode in the season.":"This is the last episode in the season.";return;}
+ const currentSeasonId=params.get("season_id"),animeId=params.get("anime_id");
+ /* Fetch next episode's Telegram data through Supabase; values configured in index.html are public. */
+ const SUPABASE_URL="https://bqrqxzujqfqvyfbshovc.supabase.co",SUPABASE_KEY="sb_publishable_wniZClCChMPoUl7RQ8M-Ng__3ch7nSx";
+ if(!window.supabase){statusEl.textContent="Supabase library unavailable; return to the episode list.";return;}
+ const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+ db.from("episodes").select("id,episode_number,telegram_channel_id,telegram_message_id,telegram_link").eq("id",ids[target]).single().then(({data,error})=>{
+  if(error||!data){statusEl.textContent="Could not load the next episode.";return;}
+  let ch=data.telegram_channel_id,msg=data.telegram_message_id;
+  if((!ch||!msg)&&data.telegram_link){const m=String(data.telegram_link).match(/t\.me\/c\/(\d+)\/(\d+)/);if(m){ch="-100"+m[1];msg=m[2];}}
+  if(!ch||!msg){statusEl.textContent="Telegram details are missing for this episode.";return;}
+  const u=new URL(location.href);u.searchParams.set("channel_id",ch);u.searchParams.set("message_id",msg);u.searchParams.set("episode",data.episode_number||"");u.searchParams.set("index",String(target));location.href=u.toString();
+ });
+}
+document.getElementById("prevBtn").addEventListener("click",()=>goEpisode(-1));document.getElementById("nextBtn").addEventListener("click",()=>goEpisode(1));
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</body></html>
