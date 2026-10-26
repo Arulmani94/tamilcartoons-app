@@ -1,0 +1,104 @@
+TamilCartoons troubleshooting
+
+401 / Invalid API key / collection cannot load
+Verify Supabase project URL and public publishable key in assets/js/config.js.
+A publishable key is safe in browser code; a secret/service_role key is not.
+The supplied key worked for anime, seasons and episodes public REST queries.
+Only OpenAPI schema metadata returned 401; that alone does not mean the key is
+invalid. If data queries later fail, check current project state and API settings.
+
+column category / is_trending does not exist
+Run sql/01_metadata.sql. All titles still works on the old schema; category browsing
+and Trending need the new fields. Fill metadata through the extended Admin form.
+Metadata saving is opt-in, so the original anime form still works before migration.
+
+Admin login succeeds but authorization fails
+Existing is_app_admin() must return true for this authenticated auth.uid().
+Inspect app_admins membership/function privately in Supabase; do not hardcode a
+password in frontend. Being a valid Auth user alone does not grant admin access.
+
+Admin RLS / permission error when saving
+Inspect 00_inspect.sql output. Restrictive guards require existing permissive admin
+write policies as well. Verify the current function; if the permissive policies are
+missing run sql/03_optional_admin_write_policies.sql. Do not disable
+RLS or expose service_role. Test authenticated nonadmin writes are denied before
+public launch. Function implementation and live policies were not supplied/verified.
+
+Anime / season delete fails with foreign-key error
+Existing FK behavior is preserved. Delete episodes, then seasons, then anime using
+Saved Items. No cascade constraint was invented or silently installed.
+
+Render build fails
+Runtime must be Docker; Root Directory telegram-backend; Dockerfile ./Dockerfile;
+Context .; no native Build/Start Command override. Dockerfile installs compiler and
+headers for TgCrypto before pip installation, using Python 3.11.
+A private Android session export does not need TgCrypto; install only Pyrogram and
+dotenv there. This preparation environment initially lacked its default compiler;
+CC=gcc successfully built TgCrypto locally. Docker uses Debian's gcc.
+
+/health gives 503 / Render deploy remains unhealthy
+Check all four required TG_ variables. A new API ID/hash does not authorize login.
+Export a valid user session, ensure its account can access configured channels, and
+stop old conflicting clients. Server never asks for OTP interactively at startup.
+Log errors show exception type without dumping credentials. Expired or revoked
+sessions must be recreated privately. Peer resolution can take time on large accounts.
+
+403 Channel is not in TG_ALLOWED_CHANNELS
+Add the exact numeric -100 ID or @username saved in the episode. Public and private
+forms are not auto-interchanged. Keep the allowlist limited to catalogue channels.
+
+404 No media / message unavailable
+Ensure the specific Telegram message exists, has video/document media, and is
+accessible to the authorized account. Invite/join private channels privately.
+Use find_channel.py or test_video.py privately to diagnose; never deploy these as
+unauthenticated web routes. Deleted messages are not recoverable through this app.
+
+429 Telegram rate limit
+Wait for Retry-After. Reduce viewers/parallel requests. This backend does not bypass
+Telegram limits and is not an unlimited CDN.
+
+416 range error
+Only one bytes range is supported. Valid examples: bytes=0-99, bytes=100-, bytes=-100.
+Unsatisfiable/malformed/multipart ranges return 416 and bytes */size.
+
+Player says backend URL is missing
+After successful Render deploy, set the actual HTTPS origin in assets/js/config.js.
+The empty default is deliberate. There is no local production URL or fake Render URL.
+
+Browser CORS / Failed to fetch
+Set FRONTEND_ORIGINS=https://arulmani94.github.io exactly. Origin includes no repo path.
+Use HTTPS for both services. Confirm /health works directly, and hard-refresh Pages.
+A Fetch/CORS failure may also mean Render is asleep or DNS/network is unavailable.
+
+Video server takes too long / first request slow
+Render free can sleep after 15 minutes idle. Open /health, wait for readiness, retry.
+The health check timeout in the player is 75 seconds. Retry playback reconnects.
+Do not assume the free plan guarantees availability or unlimited bandwidth.
+
+Audio only / black screen / MEDIA_ERR_SRC_NOT_SUPPORTED
+Correct byte ranges cannot make an unsupported codec playable. Convert source to
+single-audio MP4 H.264/AAC; put MP4 metadata at the start (faststart) for quicker loading.
+MKV/HEVC/DTS compatibility depends on browser/device. No transcoding is bundled.
+
+Seeking stops / stream interrupted
+Check Telegram rate limits, lost session access, server restarts/deploys, host timeout,
+network and concurrent viewer load. Logs report early EOF or stream exception type.
+A failure after response headers closes the response; the player offers retry.
+
+Previous / Next disabled
+Normal at first/last episode of the selected season. Navigation does not cross seasons.
+Use the anime-detail season selector to switch seasons. Episode IDs come from the
+DB, so missing/deleted records give an error rather than playing a guessed message.
+
+Old bookmarks with channel_id/message_id only
+The new player uses player.html?episode_id=DATABASE_EPISODE_ID. Reopen the episode
+from anime.html. This ensures navigation and title data come from the database.
+
+Frontend files return 404
+Upload extracted files to repo root, including assets/css and assets/js. Avoid an
+extra TamilCartoons/ nesting level. Wait for Pages Actions to finish before refreshing.
+
+Test commands
+Backend mock tests: cd telegram-backend; python -m pytest tests/test_stream.py -q
+Browser mock tests require Playwright/Chromium; see README_SETUP.txt.
+The browser suite uses fake data and never signs into real Supabase or Telegram.

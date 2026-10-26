@@ -1,0 +1,1824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TamilCartoons Anime Admin</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+<style>
+:root {
+    --bg: #080b14;
+    --panel: #111827;
+    --panel2: #182235;
+    --border: #293449;
+    --text: #f4f7ff;
+    --muted: #9ba9c0;
+    --accent: #5c8dff;
+    --green: #20c997;
+    --red: #ff5d73;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+
+button, input, textarea, select {
+    font: inherit;
+}
+
+button {
+    cursor: pointer;
+    border: 0;
+    border-radius: 9px;
+    padding: 11px 15px;
+    font-weight: 700;
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+.primary {
+    background: var(--accent);
+    color: white;
+}
+
+.success {
+    background: var(--green);
+    color: #06140f;
+}
+
+.danger {
+    background: var(--red);
+    color: #23060b;
+}
+
+.secondary {
+    background: #26344c;
+    color: white;
+}
+
+.hidden {
+    display: none !important;
+}
+
+input, textarea, select {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: #0b1220;
+    color: white;
+    outline: none;
+    margin-top: 7px;
+}
+
+input:focus, textarea:focus, select:focus {
+    border-color: var(--accent);
+}
+
+textarea {
+    min-height: 95px;
+    resize: vertical;
+}
+
+label {
+    display: block;
+    color: #c8d3e5;
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+
+h1, h2, h3 {
+    margin-top: 0;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 17px 22px;
+    border-bottom: 1px solid var(--border);
+    background: #0d1321;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.brand {
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.brand span {
+    color: var(--accent);
+}
+
+.layout {
+    display: grid;
+    grid-template-columns: 225px minmax(0, 1fr);
+    min-height: calc(100vh - 65px);
+}
+
+.sidebar {
+    padding: 18px 12px;
+    border-right: 1px solid var(--border);
+    background: #0d1321;
+}
+
+.navbtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    margin-bottom: 8px;
+    background: transparent;
+    color: #c4cfe2;
+}
+
+.navbtn.active, .navbtn:hover {
+    background: #1c2b45;
+    color: white;
+}
+
+main {
+    min-width: 0;
+    padding: 25px;
+}
+
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+}
+
+.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.formgrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 16px;
+}
+
+.full {
+    grid-column: 1 / -1;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    align-items: center;
+}
+
+.notice {
+    padding: 12px 14px;
+    border-radius: 9px;
+    background: #172641;
+    color: #d7e5ff;
+    margin-bottom: 16px;
+    line-height: 1.6;
+    font-size: 13px;
+}
+
+.status {
+    margin: 14px 0;
+    padding: 12px;
+    border-radius: 9px;
+    background: #172641;
+    display: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.status.show {
+    display: block;
+}
+
+.status.error {
+    background: #421b27;
+    color: #ffd7df;
+}
+
+.status.ok {
+    background: #10352c;
+    color: #c7ffed;
+}
+
+.item {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    padding: 14px;
+    border-radius: 10px;
+    margin-top: 10px;
+    overflow-wrap: anywhere;
+}
+
+.itemtitle {
+    font-weight: 800;
+    margin-bottom: 7px;
+}
+
+.itemmeta {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.7;
+    margin-bottom: 10px;
+}
+
+.itembuttons {
+    display: flex;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.itembuttons button {
+    padding: 8px 11px;
+    font-size: 12px;
+}
+
+.posterpreview {
+    max-width: 140px;
+    max-height: 180px;
+    border-radius: 9px;
+    object-fit: contain;
+    display: block;
+    margin-top: 10px;
+}
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.stat {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 17px;
+}
+
+.stat strong {
+    display: block;
+    font-size: 26px;
+    margin-top: 8px;
+}
+
+.loginwrap {
+    max-width: 430px;
+    margin: 70px auto;
+    padding: 25px;
+}
+
+.smallheading {
+    color: #aebbd1;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+footer {
+    padding: 25px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 12px;
+}
+
+@media (max-width: 750px) {
+    .layout {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        display: flex;
+        gap: 7px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 10px;
+    }
+
+    .navbtn {
+        width: auto;
+        white-space: nowrap;
+        margin: 0;
+        font-size: 12px;
+        padding: 10px;
+    }
+
+    main {
+        padding: 14px;
+    }
+
+    .formgrid {
+        grid-template-columns: 1fr;
+    }
+
+    .full {
+        grid-column: auto;
+    }
+
+    .stats {
+        grid-template-columns: 1fr;
+    }
+
+    .topbar {
+        padding: 14px;
+    }
+
+    .brand {
+        font-size: 16px;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header class="topbar">
+    <div class="brand">TamilCartoons <span>Admin</span></div>
+    <div class="actions">
+        <span id="userEmail" class="muted"></span>
+        <button id="logoutBtn" class="secondary hidden" type="button">
+            Logout
+        </button>
+    </div>
+</header>
+
+<!-- LOGIN -->
+<section id="loginScreen" class="loginwrap">
+    <div class="card">
+        <h2>Admin Login</h2>
+        <p class="muted">
+            Sign in using the administrator account created in Supabase.
+        </p>
+
+        <form id="loginForm">
+            <label>
+                Email
+                <input id="loginEmail" type="email" autocomplete="username"
+                       required placeholder="Admin email">
+            </label>
+
+            <label>
+                Password
+                <input id="loginPassword" type="password"
+                       autocomplete="current-password" required
+                       placeholder="Admin password">
+            </label>
+
+            <button class="primary" id="loginBtn" type="submit"
+                    style="width:100%">
+                Login
+            </button>
+        </form>
+
+        <div id="loginStatus" class="status"></div>
+
+        <p class="muted">
+            This dashboard requires an authenticated admin account.
+        </p>
+    </div>
+</section>
+
+<!-- APP -->
+<div id="appScreen" class="layout hidden">
+
+    <aside class="sidebar">
+        <button class="navbtn active" data-page="dashboard">Dashboard</button>
+        <button class="navbtn" data-page="anime">Add Anime</button>
+        <button class="navbtn" data-page="seasons">Seasons</button>
+        <button class="navbtn" data-page="episodes">Episodes</button>
+        <button class="navbtn" data-page="saved">Saved Items</button>
+    </aside>
+
+    <main>
+
+        <!-- DASHBOARD -->
+        <section id="page-dashboard" class="page active">
+            <h1>Dashboard</h1>
+            <p class="muted">Your Anime App database overview.</p>
+
+            <div class="stats">
+                <div class="stat">
+                    <div class="muted">Anime</div>
+                    <strong id="animeCount">0</strong>
+                </div>
+                <div class="stat">
+                    <div class="muted">Seasons</div>
+                    <strong id="seasonCount">0</strong>
+                </div>
+                <div class="stat">
+                    <div class="muted">Episodes</div>
+                    <strong id="episodeCount">0</strong>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Database Connection</h3>
+                <p id="connectionText" class="muted">
+                    Checking database...
+                </p>
+                <button class="primary" id="refreshBtn" type="button">
+                    Refresh Data
+                </button>
+                <div id="dashboardStatus" class="status"></div>
+            </div>
+        </section>
+
+        <!-- ANIME -->
+        <section id="page-anime" class="page">
+            <h1>Add Anime</h1>
+
+            <div class="notice">
+                Anime information is saved directly to Supabase.
+                Poster images use the URL you provide.
+            </div>
+
+            <div class="card">
+                <form id="animeForm">
+                    <input type="hidden" id="animeEditId">
+
+                    <div class="formgrid">
+                        <label class="full">
+                            Anime Name
+                            <input id="animeName" required
+                                   placeholder="Naruto Shippuden">
+                        </label>
+
+                        <label class="full">
+                            Description
+                            <textarea id="animeDescription"
+                                      placeholder="Short anime description"></textarea>
+                        </label>
+
+                        <label class="full">
+                            Storyline
+                            <textarea id="animeStoryline"
+                                      placeholder="Anime storyline"></textarea>
+                        </label>
+
+                        <label class="full">
+                            Poster Image URL
+                            <input id="animePoster" type="url"
+                                   placeholder="https://example.com/poster.jpg">
+                            <img id="posterPreview" class="posterpreview hidden"
+                                 alt="Poster preview">
+                        </label>
+                    </div>
+
+                    <details style="margin:16px 0"><summary>Catalogue metadata (requires sql/01_metadata.sql)</summary>
+                    <p class="muted">Leave disabled before migration. Enable to save categories and Trending selection.</p>
+                    <label><input id="metadataEnabled" type="checkbox"> Save catalogue metadata</label>
+                    <div class="formgrid">
+                    <label>Category<select id="animeCategory"><option value="">Uncategorized</option><option>Tamil Dubbed</option><option>Tamil</option><option>Tamil Dubbed Anime</option></select></label>
+                    <label>Genre<input id="animeGenre"></label><label>Status<input id="animeStatusMeta" placeholder="Ongoing / Completed"></label>
+                    <label>Studio<input id="animeStudio"></label><label>Rating (0–10)<input id="animeRating" type="number" min="0" max="10" step="0.1"></label>
+                    <label><input id="animeTrending" type="checkbox"> Show in Trending</label>
+                    </div></details>
+                    <div class="actions">
+                        <button class="primary" id="animeSaveBtn" type="submit">
+                            Save Anime
+                        </button>
+                        <button class="secondary hidden" id="animeCancelBtn"
+                                type="button">
+                            Cancel Edit
+                        </button>
+                    </div>
+                </form>
+
+                <div id="animeStatus" class="status"></div>
+            </div>
+        </section>
+
+        <!-- SEASONS -->
+        <section id="page-seasons" class="page">
+            <h1>Manage Seasons</h1>
+
+            <div class="card">
+                <form id="seasonForm">
+                    <input type="hidden" id="seasonEditId">
+
+                    <label>
+                        Select Anime
+                        <select id="seasonAnime" required>
+                            <option value="">Select Anime</option>
+                        </select>
+                    </label>
+
+                    <div class="formgrid">
+                        <label>
+                            Season Number
+                            <input id="seasonNumber" type="number"
+                                   min="1" required placeholder="1">
+                        </label>
+
+                        <label>
+                            Season Name
+                            <input id="seasonName" required
+                                   placeholder="Season 1">
+                        </label>
+                    </div>
+
+                    <div class="actions">
+                        <button class="primary" id="seasonSaveBtn" type="submit">
+                            Save Season
+                        </button>
+                        <button class="secondary hidden" id="seasonCancelBtn"
+                                type="button">
+                            Cancel Edit
+                        </button>
+                    </div>
+                </form>
+
+                <div id="seasonStatus" class="status"></div>
+            </div>
+        </section>
+
+        <!-- EPISODES -->
+        <section id="page-episodes" class="page">
+            <h1>Manage Episodes</h1>
+
+            <div class="notice">
+                First select Anime and Season. Then paste Telegram video links.
+                One link creates one episode. The next episode number is
+                calculated from the existing episodes in that season.
+            </div>
+
+            <div class="card">
+                <form id="episodeForm">
+                    <label>
+                        Select Anime
+                        <select id="episodeAnime" required>
+                            <option value="">Select Anime</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        Select Season
+                        <select id="episodeSeason" required>
+                            <option value="">Select Season</option>
+                        </select>
+                    </label>
+
+                    <label>
+                        Telegram Video Links
+                        <textarea id="telegramLinks" required
+                                  placeholder="Paste one Telegram link per line&#10;https://t.me/c/1234567890/1&#10;https://t.me/c/1234567890/2"></textarea>
+                    </label>
+
+                    <p class="muted">
+                        Links supported:
+                        t.me/c/CHANNEL_ID/MESSAGE_ID and
+                        t.me/CHANNEL_USERNAME/MESSAGE_ID.
+                        Do not use private API secrets in this page.
+                    </p>
+
+                    <div class="actions">
+                        <button class="secondary" id="previewLinksBtn"
+                                type="button">
+                            Preview Episodes
+                        </button>
+                        <button class="primary" id="importEpisodesBtn"
+                                type="submit">
+                            Import Episodes to Database
+                        </button>
+                    </div>
+                </form>
+
+                <div id="linkPreview" class="item hidden"></div>
+                <div id="episodeStatus" class="status"></div>
+            </div>
+        </section>
+
+        <!-- SAVED ITEMS -->
+        <section id="page-saved" class="page">
+            <h1>Saved Items</h1>
+
+            <div class="card">
+                <div class="actions">
+                    <button class="primary" id="showAnimeBtn" type="button">
+                        Anime
+                    </button>
+                    <button class="secondary" id="showSeasonsBtn" type="button">
+                        Seasons
+                    </button>
+                    <button class="secondary" id="showEpisodesBtn" type="button">
+                        Episodes
+                    </button>
+                </div>
+                <div id="savedList"></div>
+                <div id="savedStatus" class="status"></div>
+            </div>
+        </section>
+
+    </main>
+</div>
+
+<footer>
+    TamilCartoons Anime Admin Dashboard
+</footer>
+
+<script src="assets/js/config.js"></script>
+<script>
+/* ==========================================================
+   STEP 1: ADD YOUR SUPABASE PROJECT URL AND PUBLISHABLE KEY
+   Replace the two placeholder values below.
+   Never put a Secret Key or service_role key here.
+   ========================================================== */
+
+const SUPABASE_URL = window.TC_CONFIG.supabaseUrl;
+const SUPABASE_PUBLISHABLE_KEY = window.TC_CONFIG.supabaseKey;
+
+/* ==========================================================
+   DATABASE CLIENT
+   ========================================================== */
+
+let db = null;
+let currentUser = null;
+
+let animeCache = [];
+let seasonCache = [];
+let episodeCache = [];
+
+let savedView = "anime";
+
+const $ = id => document.getElementById(id);
+
+function setStatus(id, message, type = "ok") {
+    const el = $(id);
+    if (!el) return;
+
+    el.textContent = message;
+    el.className = "status show " + type;
+}
+
+function clearStatus(id) {
+    const el = $(id);
+    if (!el) return;
+
+    el.textContent = "";
+    el.className = "status";
+}
+
+function escapeHTML(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[char]);
+}
+
+function validateConfiguration() {
+    if (
+        !SUPABASE_URL.startsWith("https://") ||
+        SUPABASE_URL.includes("PASTE_YOUR_")
+    ) {
+        throw new Error(
+            "Add your real Supabase Project URL in the configuration section."
+        );
+    }
+
+    if (
+        !SUPABASE_PUBLISHABLE_KEY ||
+        SUPABASE_PUBLISHABLE_KEY.includes("PASTE_YOUR_")
+    ) {
+        throw new Error(
+            "Add your Supabase Publishable Key in the configuration section."
+        );
+    }
+
+    if (!window.supabase || !window.supabase.createClient) {
+        throw new Error(
+            "Supabase JavaScript library did not load. Check your internet connection."
+        );
+    }
+}
+
+function initDatabase() {
+    if (db) return;
+    validateConfiguration();
+
+    db = window.supabase.createClient(
+        SUPABASE_URL.replace(/\/+$/, ""),
+        SUPABASE_PUBLISHABLE_KEY,
+        {
+            auth: {
+                persistSession: true,
+                autoRefreshToken: true,
+                detectSessionInUrl: true
+            }
+        }
+    );
+}
+
+/* ==========================================================
+   NAVIGATION
+   ========================================================== */
+
+document.querySelectorAll(".navbtn").forEach(button => {
+    button.addEventListener("click", () => {
+        showPage(button.dataset.page);
+    });
+});
+
+function showPage(name) {
+    document.querySelectorAll(".navbtn").forEach(button => {
+        button.classList.toggle(
+            "active",
+            button.dataset.page === name
+        );
+    });
+
+    document.querySelectorAll(".page").forEach(page => {
+        page.classList.remove("active");
+    });
+
+    $("page-" + name).classList.add("active");
+
+    if (name === "saved") {
+        renderSavedItems();
+    }
+
+    if (name === "seasons") {
+        populateAnimeSelects();
+    }
+
+    if (name === "episodes") {
+        populateAnimeSelects();
+        populateEpisodeSeasons();
+    }
+}
+
+/* ==========================================================
+   AUTHENTICATION
+   ========================================================== */
+
+$("loginForm").addEventListener("submit", async event => {
+    event.preventDefault();
+
+    clearStatus("loginStatus");
+
+    const email = $("loginEmail").value.trim();
+    const password = $("loginPassword").value;
+
+    $("loginBtn").disabled = true;
+    $("loginBtn").textContent = "Signing in...";
+
+    try {
+        if (!db) initDatabase();
+
+        const { data, error } = await db.auth.signInWithPassword({
+            email,
+            password
+        });
+
+        if (error) throw error;
+
+        currentUser = data.user;
+
+        await showApplication();
+    } catch (error) {
+        setStatus(
+            "loginStatus",
+            "Login failed: " + error.message,
+            "error"
+        );
+    } finally {
+        $("loginBtn").disabled = false;
+        $("loginBtn").textContent = "Login";
+    }
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+    if (!db) return;
+
+    const { error } = await db.auth.signOut();
+
+    if (error) {
+        alert("Logout failed: " + error.message);
+        return;
+    }
+
+    currentUser = null;
+
+    $("appScreen").classList.add("hidden");
+    $("loginScreen").classList.remove("hidden");
+    $("logoutBtn").classList.add("hidden");
+    $("userEmail").textContent = "";
+    $("loginPassword").value = "";
+});
+
+async function showApplication() {
+    const { data: allowed, error: adminError } = await db.rpc("is_app_admin");
+    if (adminError || allowed !== true) {
+        await db.auth.signOut();
+        currentUser = null;
+        throw new Error(adminError ? "Admin authorization check failed: " + adminError.message : "This account is not an authorized administrator.");
+    }
+    $("loginScreen").classList.add("hidden");
+    $("appScreen").classList.remove("hidden");
+    $("logoutBtn").classList.remove("hidden");
+    $("userEmail").textContent = currentUser?.email || "";
+
+    $("connectionText").textContent = "Connecting to database...";
+
+    await loadAllData();
+}
+
+async function restoreSession() {
+    try {
+        initDatabase();
+
+        const { data, error } = await db.auth.getSession();
+
+        if (error) throw error;
+
+        if (data.session) {
+            currentUser = data.session.user;
+            await showApplication();
+        }
+    } catch (error) {
+        setStatus(
+            "loginStatus",
+            error.message,
+            "error"
+        );
+    }
+}
+
+// Session restoration is handled once by startApp below.
+
+/* ==========================================================
+   LOAD DATABASE DATA
+   ========================================================== */
+
+async function fetchAll(table, order, ascending = true) {
+    const rows = [];
+    for (let offset = 0; ; offset += 500) {
+        let builder = db.from(table).select("*").order(order, { ascending });
+        if (order !== "id") builder = builder.order("id");
+        const result = await builder.range(offset, offset + 499);
+        if (result.error) return result;
+        rows.push(...result.data);
+        if (result.data.length < 500) return { data: rows, error: null };
+    }
+}
+async function loadAllData() {
+    $("connectionText").textContent = "Loading database data...";
+
+    try {
+        const [
+            animeResult,
+            seasonResult,
+            episodeResult
+        ] = await Promise.all([
+            fetchAll("anime", "id", false),
+            fetchAll("seasons", "season_number"),
+            fetchAll("episodes", "episode_number")
+        ]);
+
+        if (animeResult.error) throw animeResult.error;
+        if (seasonResult.error) throw seasonResult.error;
+        if (episodeResult.error) throw episodeResult.error;
+
+        animeCache = animeResult.data || [];
+        seasonCache = seasonResult.data || [];
+        episodeCache = episodeResult.data || [];
+
+        $("animeCount").textContent = animeCache.length;
+        $("seasonCount").textContent = seasonCache.length;
+        $("episodeCount").textContent = episodeCache.length;
+
+        $("connectionText").textContent =
+            "Connected successfully. Database data loaded.";
+
+        populateAnimeSelects();
+        populateEpisodeSeasons();
+        renderSavedItems();
+
+        clearStatus("dashboardStatus");
+    } catch (error) {
+        $("connectionText").textContent =
+            "Database error: " + error.message;
+
+        setStatus(
+            "dashboardStatus",
+            "Could not load database data.\n" +
+            error.message +
+            "\nCheck your Project URL, Publishable Key, RLS policies and internet connection.",
+            "error"
+        );
+    }
+}
+
+$("refreshBtn").addEventListener("click", loadAllData);
+
+/* ==========================================================
+   ANIME CRUD
+   ========================================================== */
+
+$("animeForm").addEventListener("submit", async event => {
+    event.preventDefault();
+
+    clearStatus("animeStatus");
+
+    const id = $("animeEditId").value;
+
+    const record = {
+        name: $("animeName").value.trim(),
+        description: $("animeDescription").value.trim(),
+        storyline: $("animeStoryline").value.trim(),
+        poster_url: $("animePoster").value.trim()
+    };
+
+    if ($("metadataEnabled").checked) {
+        Object.assign(record, {
+            category: $("animeCategory").value || null,
+            genre: $("animeGenre").value.trim() || null,
+            status: $("animeStatusMeta").value.trim() || null,
+            studio: $("animeStudio").value.trim() || null,
+            rating: $("animeRating").value === "" ? null : Number($("animeRating").value),
+            is_trending: $("animeTrending").checked
+        });
+    }
+    if (!record.name) {
+        setStatus("animeStatus", "Anime Name is required.", "error");
+        return;
+    }
+
+    $("animeSaveBtn").disabled = true;
+
+    try {
+        let result;
+
+        if (id) {
+            result = await db.from("anime")
+                .update(record)
+                .eq("id", id).select("id");
+        } else {
+            result = await db.from("anime")
+                .insert(record);
+        }
+
+        if (result.error) throw result.error;
+        if (id && !result.data?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        setStatus(
+            "animeStatus",
+            id ? "Anime updated successfully." : "Anime saved to Supabase.",
+            "ok"
+        );
+
+        resetAnimeForm();
+        await loadAllData();
+    } catch (error) {
+        setStatus(
+            "animeStatus",
+            "Could not save Anime.\n" + error.message,
+            "error"
+        );
+    } finally {
+        $("animeSaveBtn").disabled = false;
+    }
+});
+
+function resetAnimeForm() {
+    $("animeForm").reset();
+    $("animeEditId").value = "";
+    $("animeSaveBtn").textContent = "Save Anime";
+    $("animeCancelBtn").classList.add("hidden");
+    $("posterPreview").classList.add("hidden");
+}
+
+$("animeCancelBtn").addEventListener("click", resetAnimeForm);
+
+$("animePoster").addEventListener("input", () => {
+    const url = $("animePoster").value.trim();
+    const img = $("posterPreview");
+
+    if (!url) {
+        img.classList.add("hidden");
+        img.removeAttribute("src");
+        return;
+    }
+
+    img.onerror = () => img.classList.add("hidden");
+    img.onload = () => img.classList.remove("hidden");
+    img.src = url;
+});
+
+async function editAnime(id) {
+    const anime = animeCache.find(item => String(item.id) === String(id));
+    if (!anime) return;
+
+    $("metadataEnabled").checked = Object.prototype.hasOwnProperty.call(anime, "category");
+    $("animeCategory").value = anime.category || "";
+    $("animeGenre").value = anime.genre || "";
+    $("animeStatusMeta").value = anime.status || "";
+    $("animeStudio").value = anime.studio || "";
+    $("animeRating").value = anime.rating ?? "";
+    $("animeTrending").checked = anime.is_trending === true;
+    $("animeEditId").value = anime.id;
+    $("animeName").value = anime.name || "";
+    $("animeDescription").value = anime.description || "";
+    $("animeStoryline").value = anime.storyline || "";
+    $("animePoster").value = anime.poster_url || "";
+
+    $("animeSaveBtn").textContent = "Update Anime";
+    $("animeCancelBtn").classList.remove("hidden");
+
+    if (anime.poster_url) {
+        $("posterPreview").src = anime.poster_url;
+        $("posterPreview").classList.remove("hidden");
+    } else {
+        $("posterPreview").classList.add("hidden");
+    }
+
+    showPage("anime");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deleteAnime(id) {
+    const anime = animeCache.find(item => String(item.id) === String(id));
+
+    if (!anime) return;
+
+    const confirmed = confirm(
+        'Delete "' + anime.name +
+        '" and all its seasons and episodes? This cannot be undone.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+        const { data: changed, error } = await db.from("anime")
+            .delete()
+            .eq("id", id).select("id");
+
+        if (error) throw error;
+        if (!changed?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        await loadAllData();
+        renderSavedItems();
+
+        setStatus("savedStatus", "Anime deleted successfully.", "ok");
+    } catch (error) {
+        setStatus(
+            "savedStatus",
+            "Could not delete Anime.\n" + error.message,
+            "error"
+        );
+    }
+}
+
+/* ==========================================================
+   SELECT OPTIONS
+   ========================================================== */
+
+function populateAnimeSelects() {
+    const selects = [
+        $("seasonAnime"),
+        $("episodeAnime")
+    ];
+
+    selects.forEach(select => {
+        const previousValue = select.value;
+
+        select.innerHTML =
+            '<option value="">Select Anime</option>';
+
+        animeCache.forEach(anime => {
+            const option = document.createElement("option");
+            option.value = anime.id;
+            option.textContent = anime.name;
+            select.appendChild(option);
+        });
+
+        if (animeCache.some(a => String(a.id) === previousValue)) {
+            select.value = previousValue;
+        }
+    });
+}
+
+$("episodeAnime").addEventListener("change", () => {
+    populateEpisodeSeasons();
+});
+
+function populateEpisodeSeasons() {
+    const animeId = $("episodeAnime").value;
+    const select = $("episodeSeason");
+    const previousValue = select.value;
+
+    select.innerHTML =
+        '<option value="">Select Season</option>';
+
+    if (!animeId) return;
+
+    const seasons = seasonCache.filter(
+        season => String(season.anime_id) === String(animeId)
+    );
+
+    seasons.forEach(season => {
+        const option = document.createElement("option");
+        option.value = season.id;
+        option.textContent =
+            season.season_name + " (Season " +
+            season.season_number + ")";
+
+        select.appendChild(option);
+    });
+
+    if (seasons.some(s => String(s.id) === previousValue)) {
+        select.value = previousValue;
+    }
+}
+
+/* ==========================================================
+   SEASONS CRUD
+   ========================================================== */
+
+$("seasonForm").addEventListener("submit", async event => {
+    event.preventDefault();
+
+    clearStatus("seasonStatus");
+
+    const id = $("seasonEditId").value;
+
+    const record = {
+        anime_id: Number($("seasonAnime").value),
+        season_number: Number($("seasonNumber").value),
+        season_name: $("seasonName").value.trim()
+    };
+
+    if (
+        !record.anime_id ||
+        !Number.isInteger(record.season_number) ||
+        record.season_number < 1 ||
+        !record.season_name
+    ) {
+        setStatus(
+            "seasonStatus",
+            "Select an Anime and enter a valid Season Number and Name.",
+            "error"
+        );
+        return;
+    }
+
+    $("seasonSaveBtn").disabled = true;
+
+    try {
+        let result;
+
+        if (id) {
+            result = await db.from("seasons")
+                .update(record)
+                .eq("id", id).select("id");
+        } else {
+            result = await db.from("seasons")
+                .insert(record);
+        }
+
+        if (result.error) throw result.error;
+        if (id && !result.data?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        setStatus(
+            "seasonStatus",
+            id ? "Season updated successfully." :
+                "Season saved to Supabase.",
+            "ok"
+        );
+
+        resetSeasonForm();
+        await loadAllData();
+    } catch (error) {
+        setStatus(
+            "seasonStatus",
+            "Could not save Season.\n" +
+            error.message +
+            "\nCheck whether this Anime already has that Season Number.",
+            "error"
+        );
+    } finally {
+        $("seasonSaveBtn").disabled = false;
+    }
+});
+
+function resetSeasonForm() {
+    $("seasonForm").reset();
+    $("seasonEditId").value = "";
+    $("seasonSaveBtn").textContent = "Save Season";
+    $("seasonCancelBtn").classList.add("hidden");
+}
+
+$("seasonCancelBtn").addEventListener("click", resetSeasonForm);
+
+function editSeason(id) {
+    const season = seasonCache.find(
+        item => String(item.id) === String(id)
+    );
+
+    if (!season) return;
+
+    $("seasonEditId").value = season.id;
+    $("seasonAnime").value = season.anime_id;
+    $("seasonNumber").value = season.season_number;
+    $("seasonName").value = season.season_name;
+
+    $("seasonSaveBtn").textContent = "Update Season";
+    $("seasonCancelBtn").classList.remove("hidden");
+
+    showPage("seasons");
+}
+
+async function deleteSeason(id) {
+    const confirmed = confirm(
+        "Delete this Season and all its Episodes? This cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+        const { data: changed, error } = await db.from("seasons")
+            .delete()
+            .eq("id", id).select("id");
+
+        if (error) throw error;
+        if (!changed?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        await loadAllData();
+        renderSavedItems();
+
+        setStatus("savedStatus", "Season deleted successfully.", "ok");
+    } catch (error) {
+        setStatus(
+            "savedStatus",
+            "Could not delete Season.\n" + error.message,
+            "error"
+        );
+    }
+}
+
+/* ==========================================================
+   TELEGRAM LINK PARSING
+   ========================================================== */
+
+function parseTelegramLink(rawLink) {
+    let input = rawLink.trim();
+
+    if (!input) {
+        throw new Error("Empty Telegram link.");
+    }
+
+    if (!/^https?:\/\//i.test(input)) {
+        input = "https://" + input;
+    }
+
+    let url;
+
+    try {
+        url = new URL(input);
+    } catch {
+        throw new Error("Invalid URL: " + rawLink);
+    }
+
+    const hostname = url.hostname.toLowerCase();
+
+    if (
+        hostname !== "t.me" &&
+        hostname !== "www.t.me" &&
+        hostname !== "telegram.me" &&
+        hostname !== "www.telegram.me"
+    ) {
+        throw new Error("This is not a supported Telegram link: " + rawLink);
+    }
+
+    const parts = url.pathname.split("/").filter(Boolean);
+
+    if (parts.length < 2) {
+        throw new Error("Telegram message ID is missing: " + rawLink);
+    }
+
+    let channelId;
+    let messageId;
+
+    if (parts[0] === "c") {
+        if (parts.length < 3) {
+            throw new Error("Private Telegram link is incomplete: " + rawLink);
+        }
+
+        const internalChannelId = parts[1];
+        messageId = parts[2];
+
+        if (!/^\d+$/.test(internalChannelId)) {
+            throw new Error("Invalid Telegram channel ID: " + rawLink);
+        }
+
+        channelId = "-100" + internalChannelId;
+    } else {
+        const username = parts[0];
+        messageId = parts[1];
+
+        if (
+            username === "s" ||
+            username === "share" ||
+            username === "iv"
+        ) {
+            throw new Error(
+                "This Telegram link type is not supported: " + rawLink
+            );
+        }
+
+        if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+            throw new Error("Invalid Telegram channel username: " + rawLink);
+        }
+
+        channelId = "@" + username;
+    }
+
+    if (!/^\d+$/.test(messageId)) {
+        throw new Error("Invalid Telegram message ID: " + rawLink);
+    }
+
+    if (Number(messageId) < 1 || Number(messageId) > 2147483647) {
+        throw new Error("Telegram message ID is out of range.");
+    }
+    return {
+        telegram_channel_id: channelId,
+        telegram_message_id: Number(messageId),
+        telegram_link: rawLink.trim()
+    };
+}
+
+function getParsedLinks() {
+    const raw = $("telegramLinks").value.trim();
+
+    if (!raw) {
+        throw new Error("Paste at least one Telegram video link.");
+    }
+
+    const links = raw
+        .split(/[\n,\r]+/)
+        .map(link => link.trim())
+        .filter(Boolean);
+
+    if (!links.length) {
+        throw new Error("No Telegram links found.");
+    }
+
+    const parsed = links.map(parseTelegramLink);
+
+    const seen = new Set();
+
+    for (const item of parsed) {
+        const key =
+            item.telegram_channel_id + ":" +
+            item.telegram_message_id;
+
+        if (seen.has(key)) {
+            throw new Error(
+                "The same Telegram video link appears more than once."
+            );
+        }
+
+        seen.add(key);
+    }
+
+    return parsed;
+}
+
+/* ==========================================================
+   EPISODE PREVIEW
+   ========================================================== */
+
+$("previewLinksBtn").addEventListener("click", () => {
+    clearStatus("episodeStatus");
+
+    try {
+        const seasonId = $("episodeSeason").value;
+
+        if (!seasonId) {
+            throw new Error("Select Anime and Season first.");
+        }
+
+        const links = getParsedLinks();
+
+        const existing = episodeCache.filter(
+            episode => String(episode.season_id) === String(seasonId)
+        );
+
+        let nextNumber = existing.reduce(
+            (max, episode) => Math.max(max, Number(episode.episode_number)),
+            0
+        ) + 1;
+
+        const preview = links.map((link, index) => ({
+            episode_number: nextNumber + index,
+            ...link
+        }));
+
+        $("linkPreview").innerHTML =
+            "<strong>Episode Preview</strong><br><br>" +
+            preview.map(item =>
+                "Episode " + item.episode_number +
+                " — " + escapeHTML(item.telegram_link)
+            ).join("<br>");
+
+        $("linkPreview").classList.remove("hidden");
+    } catch (error) {
+        setStatus("episodeStatus", error.message, "error");
+    }
+});
+
+/* ==========================================================
+   EPISODES CRUD / BULK IMPORT
+   ========================================================== */
+
+$("episodeForm").addEventListener("submit", async event => {
+    event.preventDefault();
+
+    clearStatus("episodeStatus");
+
+    const seasonId = $("episodeSeason").value;
+
+    if (!seasonId) {
+        setStatus(
+            "episodeStatus",
+            "Select Anime and Season first.",
+            "error"
+        );
+        return;
+    }
+
+    $("importEpisodesBtn").disabled = true;
+    $("importEpisodesBtn").textContent = "Importing...";
+
+    try {
+        const links = getParsedLinks();
+
+        const existing = episodeCache.filter(
+            episode => String(episode.season_id) === String(seasonId)
+        );
+
+        let nextNumber = existing.reduce(
+            (max, episode) => Math.max(max, Number(episode.episode_number)),
+            0
+        ) + 1;
+
+        const records = links.map((link, index) => ({
+            season_id: Number(seasonId),
+            episode_number: nextNumber + index,
+            telegram_channel_id: link.telegram_channel_id,
+            telegram_message_id: link.telegram_message_id,
+            telegram_link: link.telegram_link
+        }));
+
+        const { error } = await db.from("episodes").insert(records);
+
+        if (error) throw error;
+
+        $("telegramLinks").value = "";
+        $("linkPreview").classList.add("hidden");
+
+        setStatus(
+            "episodeStatus",
+            records.length +
+            " episode(s) saved successfully to Supabase.",
+            "ok"
+        );
+
+        await loadAllData();
+    } catch (error) {
+        setStatus(
+            "episodeStatus",
+            "Could not import episodes.\n" +
+            error.message +
+            "\nCheck the Telegram links and ensure they have not already been imported.",
+            "error"
+        );
+    } finally {
+        $("importEpisodesBtn").disabled = false;
+        $("importEpisodesBtn").textContent = "Import Episodes to Database";
+    }
+});
+
+async function editEpisode(id) {
+    const episode = episodeCache.find(
+        item => String(item.id) === String(id)
+    );
+
+    if (!episode) return;
+
+    const newNumber = prompt(
+        "Enter Episode Number:",
+        episode.episode_number
+    );
+
+    if (newNumber === null) return;
+
+    if (!/^[1-9]\d*$/.test(newNumber.trim())) {
+        alert("Enter a valid positive Episode Number.");
+        return;
+    }
+
+    const newLink = prompt(
+        "Enter Telegram Video Link:",
+        episode.telegram_link
+    );
+
+    if (newLink === null) return;
+
+    let parsed;
+
+    try {
+        parsed = parseTelegramLink(newLink);
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
+
+    try {
+        const { data: changed, error } = await db.from("episodes")
+            .update({
+                episode_number: Number(newNumber),
+                telegram_channel_id: parsed.telegram_channel_id,
+                telegram_message_id: parsed.telegram_message_id,
+                telegram_link: parsed.telegram_link
+            })
+            .eq("id", id).select("id");
+
+        if (error) throw error;
+        if (!changed?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        await loadAllData();
+        renderSavedItems();
+
+        setStatus("savedStatus", "Episode updated successfully.", "ok");
+    } catch (error) {
+        setStatus(
+            "savedStatus",
+            "Could not update Episode.\n" + error.message,
+            "error"
+        );
+    }
+}
+
+async function deleteEpisode(id) {
+    if (!confirm("Delete this Episode? This cannot be undone.")) return;
+
+    try {
+        const { data: changed, error } = await db.from("episodes")
+            .delete()
+            .eq("id", id).select("id");
+
+        if (error) throw error;
+        if (!changed?.length) throw new Error("No record was changed. Check authorization and refresh.");
+        if (!changed?.length) throw new Error("No record was changed. Check authorization and refresh.");
+
+        await loadAllData();
+        renderSavedItems();
+
+        setStatus("savedStatus", "Episode deleted successfully.", "ok");
+    } catch (error) {
+        setStatus(
+            "savedStatus",
+            "Could not delete Episode.\n" + error.message,
+            "error"
+        );
+    }
+}
+
+/* ==========================================================
+   SAVED ITEMS RENDERING
+   ========================================================== */
+
+$("showAnimeBtn").addEventListener("click", () => {
+    savedView = "anime";
+    renderSavedItems();
+});
+
+$("showSeasonsBtn").addEventListener("click", () => {
+    savedView = "seasons";
+    renderSavedItems();
+});
+
+$("showEpisodesBtn").addEventListener("click", () => {
+    savedView = "episodes";
+    renderSavedItems();
+});
+
+function renderSavedItems() {
+    const list = $("savedList");
+
+    if (!list) return;
+
+    if (savedView === "anime") {
+        if (!animeCache.length) {
+            list.innerHTML =
+                '<p class="muted">No Anime saved yet.</p>';
+            return;
+        }
+
+        list.innerHTML = animeCache.map(anime => `
+            <div class="item">
+                <div class="itemtitle">${escapeHTML(anime.name)}</div>
+                <div class="itemmeta">
+                    ID: ${escapeHTML(anime.id)}<br>
+                    ${escapeHTML(anime.description || "No description")}
+                </div>
+                <div class="itembuttons">
+                    <button class="primary"
+                        data-action="edit-anime"
+                        data-id="${escapeHTML(anime.id)}">
+                        Edit
+                    </button>
+                    <button class="danger"
+                        data-action="delete-anime"
+                        data-id="${escapeHTML(anime.id)}">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `).join("");
+    }
+
+    if (savedView === "seasons") {
+        if (!seasonCache.length) {
+            list.innerHTML =
+                '<p class="muted">No Seasons saved yet.</p>';
+            return;
+        }
+
+        list.innerHTML = seasonCache.map(season => {
+            const anime = animeCache.find(
+                item => String(item.id) === String(season.anime_id)
+            );
+
+            return `
+                <div class="item">
+                    <div class="itemtitle">
+                        ${escapeHTML(anime?.name || "Unknown Anime")}
+                        — ${escapeHTML(season.season_name)}
+                    </div>
+                    <div class="itemmeta">
+                        Season Number: ${escapeHTML(season.season_number)}<br>
+                        Season ID: ${escapeHTML(season.id)}
+                    </div>
+                    <div class="itembuttons">
+                        <button class="primary"
+                            data-action="edit-season"
+                            data-id="${escapeHTML(season.id)}">
+                            Edit
+                        </button>
+                        <button class="danger"
+                            data-action="delete-season"
+                            data-id="${escapeHTML(season.id)}">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+
+    if (savedView === "episodes") {
+        if (!episodeCache.length) {
+            list.innerHTML =
+                '<p class="muted">No Episodes saved yet.</p>';
+            return;
+        }
+
+        list.innerHTML = episodeCache.map(episode => {
+            const season = seasonCache.find(
+                item => String(item.id) === String(episode.season_id)
+            );
+
+            const anime = animeCache.find(
+                item => String(item.id) === String(season?.anime_id)
+            );
+
+            return `
+                <div class="item">
+                    <div class="itemtitle">
+                        ${escapeHTML(anime?.name || "Unknown Anime")}
+                        — Episode ${escapeHTML(episode.episode_number)}
+                    </div>
+                    <div class="itemmeta">
+                        Season: ${escapeHTML(season?.season_name || "Unknown")}<br>
+                        Telegram: ${escapeHTML(episode.telegram_link)}<br>
+                        Message ID: ${escapeHTML(episode.telegram_message_id)}
+                    </div>
+                    <div class="itembuttons">
+                        <button class="primary"
+                            data-action="edit-episode"
+                            data-id="${escapeHTML(episode.id)}">
+                            Edit
+                        </button>
+                        <button class="danger"
+                            data-action="delete-episode"
+                            data-id="${escapeHTML(episode.id)}">
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join("");
+    }
+}
+
+$("savedList").addEventListener("click", async event => {
+    const button = event.target.closest("button[data-action]");
+
+    if (!button) return;
+
+    const action = button.dataset.action;
+    const id = button.dataset.id;
+
+    if (action === "edit-anime") await editAnime(id);
+    if (action === "delete-anime") await deleteAnime(id);
+
+    if (action === "edit-season") editSeason(id);
+    if (action === "delete-season") await deleteSeason(id);
+
+    if (action === "edit-episode") await editEpisode(id);
+    if (action === "delete-episode") await deleteEpisode(id);
+});
+
+/* ==========================================================
+   AUTH STATE
+   ========================================================== */
+
+async function initializeAuthListener() {
+    if (!db) return;
+
+    db.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") {
+            currentUser = null;
+            $("appScreen").classList.add("hidden");
+            $("loginScreen").classList.remove("hidden");
+            $("logoutBtn").classList.add("hidden");
+            $("userEmail").textContent = "";
+        }
+
+        if (event === "SIGNED_IN" && session?.user) {
+            currentUser = session.user;
+        }
+    });
+}
+
+/* ==========================================================
+   START
+   ========================================================== */
+
+(async function startApp() {
+    try {
+        initDatabase();
+        await initializeAuthListener();
+
+        const { data, error } = await db.auth.getSession();
+
+        if (error) throw error;
+
+        if (data.session) {
+            currentUser = data.session.user;
+            await showApplication();
+        }
+    } catch (error) {
+        setStatus(
+            "loginStatus",
+            "Configuration error: " + error.message,
+            "error"
+        );
+    }
+})();
+</script>
+
+</body>
+</html>

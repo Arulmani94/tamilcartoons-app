@@ -1,0 +1,63 @@
+TamilCartoons — போனில் deployment செய்யும் வரிசை
+
+இது முழு source package. இன்னும் live deploy செய்யப்படவில்லை.
+
+முதல் வேலை — ZIP extract + Database inspection
+1. ZIP-ஐ போனில் extract செய்யவும்.
+2. Supabase project → SQL Editor → New query திறக்கவும்.
+3. sql/00_inspect.sql content-ஐ paste செய்து Run செய்யவும்.
+   இது schema/policies-ஐ மட்டும் படிக்கும்; data மாற்றாது.
+   கொடுத்த Publishable key-ல் 3 public data tables-உம் 200 OK வந்துள்ளன.
+   Key மாற்றத் தேவையில்லை. Secrets-ஐ chat-ல் அனுப்ப வேண்டாம்.
+
+அடுத்து — Database
+4. SQL Editor-ல் sql/00_inspect.sql முதலில் run செய்யவும்.
+5. Tables / policies / is_app_admin() சரியாக உள்ளதா பார்க்கவும்.
+6. sql/01_metadata.sql run செய்யவும். Existing records நீக்கப்படாது.
+7. sql/02_admin_guard.sql run செய்யவும். Existing admin write policies தேவை.
+   RLS-ஐ disable செய்ய வேண்டாம். ஏற்கெனவே உள்ள admin membership-ஐ பயன்படுத்தவும்.
+
+அடுத்து — GitHub
+8. ZIP extract செய்யவும். Existing repo-வின் backup வைத்துக்கொள்ளவும்.
+9. TamilCartoons folder-க்குள் இருக்கும் contents-ஐ repo ROOT-ல் upload செய்யவும்.
+   index.html, anime.html, player.html, admin.html, assets/ → website files.
+   telegram-backend/ → Render files. render.yaml → repo root.
+   ZIP மட்டும் upload செய்தால் website deploy ஆகாது.
+10. .env, Telegram .session / session-journal upload செய்ய வேண்டாம்.
+11. GitHub Settings → Pages → main (அல்லது தற்போதைய branch) → /(root).
+
+அடுத்து — Telegram session
+12. தனிப்பட்ட Termux terminal-ல் Python install செய்யவும்.
+13. python -m pip install Pyrogram==2.0.106 python-dotenv==1.0.1
+14. python export_session.py run செய்யவும் (telegram-backend folder).
+15. API ID/hash, phone, OTP, 2FA ஆகியவற்றை அந்த private terminal-ல் மட்டும் இடவும்.
+    Existing session file இருந்தால் அதன் path-ஐ .session இல்லாமல் கொடுக்கலாம்.
+16. உருவாகும் private_session_string.txt content-ஐ Render TG_SESSION_STRING-ல்
+    மட்டும் paste செய்து private output file-ஐ delete செய்யவும்.
+    முழு விவரம் README_SETUP.txt → PHASE 2.
+
+அடுத்து — Render
+17. New Web Service → உங்கள் existing GitHub repo.
+18. Root Directory: telegram-backend | Runtime: Docker.
+19. Dockerfile: ./Dockerfile | Build Context: . | Command override: காலியாக விடவும்.
+20. Health Check: /health | Workers: 1.
+21. Environment:
+    TG_API_ID = உங்கள் API ID
+    TG_API_HASH = உங்கள் API hash
+    TG_SESSION_STRING = authorized session string
+    TG_ALLOWED_CHANNELS = video channel IDs / @usernames, comma-separated
+    FRONTEND_ORIGINS = https://arulmani94.github.io
+22. Deploy செய்து /health-ல் telegram_ready: true வருகிறதா பார்க்கவும்.
+
+இறுதியாக — இணைப்பு
+23. Render கொடுத்த உண்மையான HTTPS origin-ஐ copy செய்யவும்.
+24. assets/js/config.js → backendUrl: '' இடத்தில் அந்த URL-ஐ வைக்கவும்.
+    /video path சேர்க்க வேண்டாம். localhost வைக்க வேண்டாம்.
+25. Commit → Pages deploy முடிந்ததும் refresh செய்யவும்.
+26. Anime → Season → Episode → Play → Seek → Previous/Next சோதிக்கவும்.
+27. Admin → Saved Items → Edit Anime → metadata enable செய்து category / Trending
+    சேமிக்கவும். Data இல்லாமல் பொய்யான Trending/category காட்டப்படாது.
+
+Free Render sleep ஆகலாம்; 24×7 uninterrupted streaming guarantee இல்லை.
+MP4 H.264/AAC browser-க்கு ஏற்றது; backend video convert செய்யாது.
+சிக்கல் வந்தால் TROUBLESHOOTING.txt-ல் error-க்கு ஏற்ற வழியைப் பார்க்கவும்.

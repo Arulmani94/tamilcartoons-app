@@ -1,0 +1,5 @@
+fastapi==0.115.6
+uvicorn==0.34.0
+Pyrogram==2.0.106
+TgCrypto==1.2.5
+python-dotenv==1.0.1

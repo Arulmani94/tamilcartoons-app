@@ -1,0 +1,96 @@
+TamilCartoons validation — 26 October 2026
+
+RESULT: 28 automated tests passed (23 backend + 5 browser integration tests).
+This is a prepared source package, NOT a verified live deployment.
+
+EXECUTED LOCALLY
+- Imported FastAPI 0.115.6, Starlette 0.41.3, Uvicorn 0.34.0, Pyrogram 2.0.106,
+  python-dotenv and TgCrypto 1.2.5 successfully. Local Python: 3.12.
+- Installed and built TgCrypto using CC=gcc after the environment's default clang
+  executable was unavailable. Docker explicitly installs gcc/headers and uses 3.11.
+- Python compile checks passed for backend and utility files.
+- node --check passed for every frontend JS file and original extended admin script.
+- HTML local href/src consistency check passed: all referenced local files exist.
+- Chromium 131 via Playwright 1.49.1, mobile 390px and desktop 1440px viewports.
+- Desktop rendered screenshot inspected for spacing/grid/navigation. It uses clearly
+  fake test fixture titles; no dummy catalogue records were added to production.
+
+BACKEND TESTS: 23 PASSED
+- Full HTTP response: exact bytes, length, Accept-Ranges and 200 status.
+- One-byte range, cross-1MiB-boundary range, open-ended range, suffix range,
+  oversized end clipping, oversized suffix clipping: exact bytes and 206 status.
+- Nine malformed/unsupported/unsatisfiable byte range cases: 416 with total size.
+- HEAD sends matching headers and no Telegram body chunks.
+- Healthy/unhealthy health responses, not-ready streaming, invalid/missing message
+  parameters, blocked channel, missing media and public username normalization.
+- Exact GitHub Pages origin allowed, unrelated origin omitted, Range preflight.
+- Client disconnect closes async media iterator.
+- Missing environment starts a non-ready health endpoint without interactive login.
+- All tests use a synthetic bounded chunk source; no real Telegram login or streams.
+
+BROWSER TESTS: 5 PASSED
+1. Homepage 24-item paging → 26 items; load-more exhaustion; real category filter;
+   search; anime detail route; switching two seasons; episode selection; selected
+   channel/message /video URL; first/last navigation boundaries; next/previous;
+   fullscreen includes custom controls; no horizontal overflow.
+2. Legacy schema metadata-column fallback and empty search result.
+3. Unauthorized admin hidden; authorized admin dashboard visible; original bulk
+   link preview (private and public Telegram links); Saved Items remains available.
+4. Missing episode and missing backend configuration produce useful errors; episode
+   navigation still works when the production URL is unconfigured.
+5. Mobile/desktop homepage and detail layout have no horizontal overflow.
+Supabase client and backend health/media are mocked. The fake media request does
+not contain a playable real video; decoding/playback success is not claimed.
+Browser tests exercise core flows, not every possible admin/database failure.
+
+LIVE READ-ONLY DATABASE CHECKS
+Using the supplied public key, GET /rest/v1/anime?select=id&limit=1, seasons and
+episodes all returned HTTP 200. GET select=* row keys confirmed:
+anime: id, name, description, storyline, poster_url, created_at.
+seasons: id, anime_id, season_number, season_name, created_at.
+episodes: id, season_id, episode_number, telegram_channel_id, telegram_message_id,
+telegram_link, created_at.
+Telegram channel IDs are strings in the returned data. Existing IDs are integers.
+The OpenAPI schema root returned 401; this does NOT invalidate the working data key.
+Additional metadata fields are absent from observed rows. Additive migration is
+provided; categories/Trending do not pretend unclassified records have metadata.
+No live INSERT, UPDATE, DELETE, login, SQL migration or policy change was performed.
+
+REVIEWED, NOT EXECUTED
+- Dockerfile COPY source paths, requirements path, compiler setup, non-root runtime,
+  0.0.0.0 binding, PORT use, one-worker startup and strict Docker context allowlist.
+- Render rootDir / Dockerfile / context paths against current official monorepo docs.
+- SQL statements against observed columns and supplied existing function/table names.
+- Admin panel retains original functional sections; authorization check added rather
+  than replacing the dashboard. No hardcoded admin password introduced.
+- No production localhost URL, invented Render origin or service-role key included.
+- Secrets/session files excluded from archive; .env.example is intentionally empty.
+
+NOT AVAILABLE / STILL REQUIRES REAL VERIFICATION
+- No Docker executable here: actual docker build/image boot was NOT run.
+- No Render account/config access: no deployment or Render service URL verified.
+- No authenticated Supabase admin session: real CRUD, app_admins membership,
+  is_app_admin() implementation, RLS enforcement and actual FK delete behavior not
+  executed/verified. Run sql/00_inspect and post-deploy admin/nonadmin checks.
+- SQL migrations were not executed; PostgreSQL policy syntax/function compatibility
+  must be confirmed in the project SQL Editor before public use.
+- No Telegram account session was used to connect: authorization persistence,
+  channel peer resolution, Telegram rate limits and live large-video seeking remain
+  unverified. Supplied SQLite session metadata identifies a user account session.
+- No real Android handset test, codec decode test, bandwidth/load test or long-session
+  hosting timeout test. Chromium viewport tests are not actual Android device tests.
+- No uptime guarantee. Free Render sleeps/ephemeral filesystem/limits apply.
+
+OFFICIAL DEPLOYMENT REFERENCES
+https://render.com/docs/free
+https://render.com/docs/monorepo-support
+https://render.com/docs/blueprint-spec
+https://render.com/docs/web-services
+https://docs.pyrogram.org/api/methods/stream_media
+https://docs.pyrogram.org/topics/storage-engines
+https://github.com/pyrogram/pyrogram (archived upstream; compatibility retained)
+
+NEXT REAL-WORLD CHECK
+Run sql/00_inspect.sql first. Then apply migrations as described, upload extracted
+project contents, configure the authorized session in Render, verify /health, set
+assets/js/config.js backendUrl to the real HTTPS origin and test a known MP4 episode.
