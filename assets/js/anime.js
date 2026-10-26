@@ -16,7 +16,7 @@
   async function loadSeason(){
    const version=++loadVersion;message('episodes','Loading episodes…');
    try{const rows=await allEpisodes($('seasons').value);if(version!==loadVersion)return;
-    $('episodes').innerHTML=rows.map(ep=>`<a class="episode" href="${episodeUrl(ep.id)}">▶ Episode ${esc(ep.episode_number)}</a>`).join('');if(!rows.length)message('episodes','No episodes in this season yet.');
+    $('episodes').innerHTML=rows.map(ep=>TC.episodeCard(ep)).join('');if(!rows.length)message('episodes','No episodes in this season yet.');
    }catch(e){if(version===loadVersion)message('episodes','Could not load episodes. '+e.message,true);}
   }
   $('seasons').addEventListener('change',loadSeason);await loadSeason();

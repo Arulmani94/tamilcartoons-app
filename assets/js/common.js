@@ -19,6 +19,13 @@ window.TC = (() => {
   function poster(a) { const src = safeImage(a.poster_url); return `<div class="poster"><span aria-hidden="true">TC</span>${src ? `<img src="${esc(src)}" alt="${esc(a.name)}" loading="lazy">` : ''}</div>`; }
   function cards(rows) { return rows.map(a => `<a class="card" href="anime.html?id=${encodeURIComponent(a.id)}">${poster(a)}<h3>${esc(a.name)}</h3><small>${esc(a.category || 'Anime & Cartoons')}</small></a>`).join(''); }
   function episodeUrl(id) { return 'player.html?episode_id=' + encodeURIComponent(id); }
+  function thumbnailUrl(ep) {
+    try { const ids=telegramIds(ep),u=new URL('/thumbnail',TC_CONFIG.backendUrl); if(u.protocol!=='https:')return '';u.searchParams.set('channel_id',ids.channel);u.searchParams.set('message_id',ids.message);return u.href; } catch { return ''; }
+  }
+  function episodeCard(ep, current) {
+    const src=thumbnailUrl(ep),active=String(ep.id)===String(current);
+    return `<a class="episode ${active?'active':''}" href="${episodeUrl(ep.id)}" ${active?'aria-current="page"':''}><div class="episode-thumb"><span class="thumb-placeholder">Preview unavailable</span>${src?`<img src="${esc(src)}" alt="Episode ${esc(ep.episode_number)} video thumbnail" loading="lazy" decoding="async">`:''}<span class="episode-number">${esc(ep.episode_number)}</span><span class="episode-play" aria-hidden="true">▶</span></div><span class="episode-label">Episode ${esc(ep.episode_number)}</span></a>`;
+  }
   async function allEpisodes(seasonId) {
     // Respect PostgREST page limits; deterministic order prevents repeated boundary rows.
     let rows = [];
@@ -44,5 +51,5 @@ window.TC = (() => {
   }
   // Hide failed posters without inline event-handler attributes.
   document.addEventListener('error', e => { if (e.target.tagName === 'IMG') e.target.hidden = true; }, true);
-  return {$,esc,db,query,animeColumns,episodeColumns,message,poster,cards,episodeUrl,allEpisodes,telegramIds};
+  return {$,esc,safeImage,db,query,animeColumns,episodeColumns,message,poster,cards,episodeUrl,allEpisodes,telegramIds,thumbnailUrl,episodeCard};
 })();
