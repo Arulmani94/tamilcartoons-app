@@ -6,9 +6,19 @@
  function connect(){if(!source)return;$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
  $('retry').addEventListener('click',connect);
  // Native fallback remains usable until custom controls have initialized.
- video.controls=false;$('customControls').hidden=false;
- $('play').addEventListener('click',async()=>{try{if(video.paused)await video.play();else video.pause();}catch(e){fail('Could not start playback. Check the connection and media format.');}});
- video.addEventListener('play',()=>{$('play').textContent='Pause';});video.addEventListener('pause',()=>{$('play').textContent='Play';});
+ video.controls=false;$('customControls').hidden=false;$('centerActions').hidden=false;
+ async function togglePlay(){try{if(video.paused)await video.play();else video.pause();}catch(e){fail('Could not start playback. Check the connection and media format.');}}
+ $('play').addEventListener('click',togglePlay);
+ video.addEventListener('click',()=>{if($('watchStage').classList.contains('controls-idle'))showControls();else togglePlay();});
+ let idleTimer;
+ function showControls(){clearTimeout(idleTimer);$('watchStage').classList.remove('controls-idle');if(!video.paused)idleTimer=setTimeout(()=>{if(!$('watchStage').contains(document.activeElement))$('watchStage').classList.add('controls-idle');},2800);}
+ for(const name of ['pointermove','pointerdown','focusin','keydown'])$('watchStage').addEventListener(name,showControls);
+ $('watchStage').addEventListener('click',event=>{const button=event.target.closest('button');if(button&&event.detail>0){button.blur();showControls();}});
+ video.addEventListener('playing',showControls);video.addEventListener('pause',showControls);video.addEventListener('ended',showControls);
+ function skip(seconds){if(!Number.isFinite(video.duration))return;video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+seconds));}
+ $('rewind').addEventListener('click',()=>skip(-10));
+ $('forward').addEventListener('click',()=>skip(10));
+ video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');});
  const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
  video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(video.duration);$('seek').value=video.duration?video.currentTime/video.duration*100:0;});
  $('seek').addEventListener('input',()=>{if(Number.isFinite(video.duration))video.currentTime=Number($('seek').value)/100*video.duration;});
