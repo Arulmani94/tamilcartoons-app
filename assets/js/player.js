@@ -10,15 +10,35 @@
  async function togglePlay(){try{if(video.paused)await video.play();else video.pause();}catch(e){fail('Could not start playback. Check the connection and media format.');}}
  $('play').addEventListener('click',togglePlay);$('miniPlay').addEventListener('click',togglePlay);
  $('railPrev').addEventListener('click',()=>$('prev').click());$('railNext').addEventListener('click',()=>$('next').click());
- video.addEventListener('click',()=>{if($('watchStage').classList.contains('controls-idle'))showControls();else togglePlay();});
- let idleTimer;
- function showControls(){clearTimeout(idleTimer);$('watchStage').classList.remove('controls-idle');if(!video.paused)idleTimer=setTimeout(()=>{if(!$('watchStage').contains(document.activeElement))$('watchStage').classList.add('controls-idle');},2800);}
- for(const name of ['pointermove','pointerdown','focusin','keydown'])$('watchStage').addEventListener(name,showControls);
+ let idleTimer,tapTimer,lastTap=null,feedbackTimer;
+ function hideControls(){clearTimeout(idleTimer);if($('watchStage').contains(document.activeElement))document.activeElement.blur();$('watchStage').classList.add('controls-idle');}
+ function showControls(){clearTimeout(idleTimer);$('watchStage').classList.remove('controls-idle');if(!video.paused)idleTimer=setTimeout(()=>{if(!$('watchStage').contains(document.activeElement))hideControls();},2800);}
+ function toggleControls(){if($('watchStage').classList.contains('controls-idle'))showControls();else hideControls();}
+ $('watchStage').addEventListener('pointermove',event=>{if(event.pointerType==='mouse')showControls();});
+ for(const name of ['focusin','keydown'])$('watchStage').addEventListener(name,showControls);
  $('watchStage').addEventListener('click',event=>{const button=event.target.closest('button');if(button&&event.detail>0){button.blur();showControls();}});
  video.addEventListener('playing',showControls);video.addEventListener('pause',showControls);video.addEventListener('ended',showControls);
- function skip(seconds){if(!Number.isFinite(video.duration))return;video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+seconds));}
- $('rewind').addEventListener('click',()=>skip(-10));
- $('forward').addEventListener('click',()=>skip(10));
+ function skip(seconds){
+  if(!Number.isFinite(video.duration)||video.duration<=0)return;
+  video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+seconds));
+  const feedback=$('seekFeedback');feedback.textContent=seconds>0?'10 seconds →':'← 10 seconds';feedback.dataset.side=seconds>0?'right':'left';feedback.hidden=false;
+  clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>{feedback.hidden=true;},650);
+ }
+ $('rewind').addEventListener('click',()=>skip(-10));$('forward').addEventListener('click',()=>skip(10));
+ video.addEventListener('click',event=>{
+  if(Date.now()<suppressVideoClickUntil)return;
+  const box=video.getBoundingClientRect();
+  const fraction=$('watchStage').classList.contains('landscape-fallback')?(event.clientY-box.top)/box.height:(event.clientX-box.left)/box.width;
+  const side=fraction<0.35?'left':fraction>0.65?'right':'center',now=Date.now();
+  if(side!=='center'&&lastTap&&lastTap.side===side&&now-lastTap.at<320){clearTimeout(tapTimer);lastTap=null;skip(side==='left'?-10:10);return;}
+  clearTimeout(tapTimer);lastTap={side,at:now};tapTimer=setTimeout(()=>{lastTap=null;toggleControls();},320);
+ });
+ const loading=$('videoLoading');
+ function updateLoading(){const busy=/Loading|Checking|Connecting|Buffering|stalled|Seeking/i.test($('status').textContent);loading.hidden=!busy;$('watchStage').classList.toggle('is-buffering',busy);}
+ new MutationObserver(updateLoading).observe($('status'),{childList:true,characterData:true,subtree:true});updateLoading();
+ video.addEventListener('seeking',()=>{$('status').textContent='Seeking…';});
+ video.addEventListener('seeked',()=>{$('status').textContent=video.readyState>=3?(video.paused?'Paused':'Playing'):'Buffering…';});
+ video.addEventListener('canplay',()=>{$('status').textContent=video.paused?'Ready. Press Play to watch.':'Playing';});
  video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');$('miniPlay').textContent='Ⅱ';$('miniPlay').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');$('miniPlay').textContent='▶';$('miniPlay').setAttribute('aria-label','Play');});
  const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
  video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(video.duration);$('seek').value=video.duration?video.currentTime/video.duration*100:0;});
@@ -27,7 +47,9 @@
  $('volume').addEventListener('input',()=>{video.volume=Number($('volume').value);});$('speed').addEventListener('change',()=>{video.playbackRate=Number($('speed').value);});
  const stage=$('watchStage');
  function fullscreenActive(){return document.fullscreenElement===stage||document.webkitFullscreenElement===stage||stage.classList.contains('immersive');}
- function syncFullscreen(){const active=fullscreenActive();$('fullscreen').textContent=active?'Exit fullscreen':'Fullscreen';$('fullscreen').setAttribute('aria-pressed',String(active));if(!active){document.body.classList.remove('player-expanded');try{screen.orientation?.unlock?.();}catch{}}showControls();}
+ function updateLandscape(){stage.classList.toggle('landscape-fallback',fullscreenActive()&&innerHeight>innerWidth&&innerWidth<=1000);}
+ window.addEventListener('resize',updateLandscape);window.visualViewport?.addEventListener('resize',updateLandscape);
+ function syncFullscreen(){const active=fullscreenActive();updateLandscape();$('fullscreen').textContent=active?'Exit fullscreen':'Fullscreen';$('fullscreen').setAttribute('aria-pressed',String(active));if(!active){document.body.classList.remove('player-expanded');try{screen.orientation?.unlock?.();}catch{}}showControls();}
  function closeImmersive(){stage.classList.remove('immersive');document.body.classList.remove('player-expanded');syncFullscreen();}
  async function toggleFullscreen(){
   if(stage.classList.contains('immersive')){closeImmersive();return;}
