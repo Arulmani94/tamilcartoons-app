@@ -143,9 +143,7 @@ async def health():
                         status_code=200 if ready else 503)
 
 
-@app.api_route('/video', methods=['GET', 'HEAD'])
-async def video(request: Request, channel_id: str = Query(..., max_length=40),
-                message_id: int = Query(..., ge=1, le=2147483647)):
+async def lookup_media(channel_id, message_id):
     try:
         channel = channel_value(channel_id)
     except ValueError as exc:
@@ -168,6 +166,45 @@ async def video(request: Request, channel_id: str = Query(..., max_length=40),
     media = (getattr(message, 'video', None) or getattr(message, 'document', None)) if message else None
     if not media or not media.file_size:
         raise HTTPException(404, 'Message has no media file')
+    return client, message, media
+
+
+thumbnail_slots = asyncio.Semaphore(4)
+
+
+@app.get('/thumbnail')
+async def thumbnail(channel_id: str = Query(..., max_length=40),
+                    message_id: int = Query(..., ge=1, le=2147483647)):
+    client, message, media = await lookup_media(channel_id, message_id)
+    thumbs = [t for t in (getattr(media, 'thumbs', None) or [])
+              if 0 < (getattr(t, 'file_size', 0) or 0) <= 1024 * 1024]
+    if not thumbs:
+        raise HTTPException(404, 'This video has no Telegram thumbnail')
+    thumb = max(thumbs, key=lambda t: getattr(t, 'width', 0) * getattr(t, 'height', 0))
+    try:
+        async with thumbnail_slots:
+            file = await asyncio.wait_for(client.download_media(thumb.file_id, in_memory=True), timeout=30)
+        if file is None:
+            raise HTTPException(404, 'Thumbnail unavailable')
+        try:
+            data = file.read(1024 * 1024 + 1)
+        finally:
+            file.close()
+        if not data or len(data) > 1024 * 1024:
+            raise HTTPException(502, 'Invalid thumbnail')
+        return Response(data, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff'})
+    except FloodWait as exc:
+        raise HTTPException(429, 'Telegram rate limit', headers={'Retry-After': str(exc.value)})
+    except asyncio.TimeoutError:
+        raise HTTPException(504, 'Thumbnail request timed out')
+    except RPCError:
+        raise HTTPException(404, 'Thumbnail unavailable')
+
+
+@app.api_route('/video', methods=['GET', 'HEAD'])
+async def video(request: Request, channel_id: str = Query(..., max_length=40),
+                message_id: int = Query(..., ge=1, le=2147483647)):
+    client, message, media = await lookup_media(channel_id, message_id)
     size = media.file_size
     mime = getattr(media, 'mime_type', None) or mimetypes.guess_type(getattr(media, 'file_name', '') or '')[0] or 'application/octet-stream'
     if not (mime.startswith('video/') or mime == 'application/octet-stream'):
