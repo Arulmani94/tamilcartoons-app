@@ -24,7 +24,29 @@
  $('seek').addEventListener('input',()=>{if(Number.isFinite(video.duration))video.currentTime=Number($('seek').value)/100*video.duration;});
  $('mute').addEventListener('click',()=>{video.muted=!video.muted;});video.addEventListener('volumechange',()=>{$('mute').textContent=video.muted?'Unmute':'Mute';$('volume').value=video.volume;});
  $('volume').addEventListener('input',()=>{video.volume=Number($('volume').value);});$('speed').addEventListener('change',()=>{video.playbackRate=Number($('speed').value);});
- $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else if($('watchStage').requestFullscreen)await $('watchStage').requestFullscreen();else if(video.webkitEnterFullscreen)video.webkitEnterFullscreen();else $('status').textContent='Fullscreen is unavailable on this browser.';}catch{$('status').textContent='Fullscreen could not open.';}});
+ const stage=$('watchStage');
+ function fullscreenActive(){return document.fullscreenElement===stage||document.webkitFullscreenElement===stage||stage.classList.contains('immersive');}
+ function syncFullscreen(){const active=fullscreenActive();$('fullscreen').textContent=active?'Exit fullscreen':'Fullscreen';$('fullscreen').setAttribute('aria-pressed',String(active));if(!active){document.body.classList.remove('player-expanded');try{screen.orientation?.unlock?.();}catch{}}showControls();}
+ function closeImmersive(){stage.classList.remove('immersive');document.body.classList.remove('player-expanded');syncFullscreen();}
+ $('fullscreen').addEventListener('click',async()=>{
+  if(stage.classList.contains('immersive')){closeImmersive();return;}
+  if(document.fullscreenElement){await document.exitFullscreen();return;}
+  if(document.webkitFullscreenElement){document.webkitExitFullscreen();return;}
+  try{
+   if(stage.requestFullscreen)await stage.requestFullscreen();
+   else if(stage.webkitRequestFullscreen)stage.webkitRequestFullscreen();
+   else if(video.webkitEnterFullscreen){video.webkitEnterFullscreen();return;}
+   else throw new Error('Native fullscreen unavailable');
+   try{await screen.orientation?.lock?.('landscape');}catch{/* Rotation depends on browser/device support. */}
+  }catch{
+   // Viewport fallback keeps playback and custom controls usable on mobile browsers.
+   stage.classList.add('immersive');document.body.classList.add('player-expanded');
+  }
+  syncFullscreen();
+ });
+ document.addEventListener('fullscreenchange',syncFullscreen);document.addEventListener('webkitfullscreenchange',syncFullscreen);
+ document.addEventListener('keydown',event=>{if(event.key==='Escape'&&stage.classList.contains('immersive'))closeImmersive();});
+ video.addEventListener('webkitendfullscreen',syncFullscreen);
  video.addEventListener('waiting',()=>{$('status').textContent='Buffering…';});video.addEventListener('stalled',()=>{$('status').textContent='Connection stalled. Waiting for data…';});
  video.addEventListener('loadedmetadata',()=>{$('status').textContent='Ready. Press Play to watch.';});video.addEventListener('playing',()=>{$('status').textContent='Playing';$('playbackError').hidden=true;});video.addEventListener('ended',()=>{$('status').textContent='Episode finished. Choose the next episode.';});
  video.addEventListener('error',()=>{fail('Video playback failed. Check the server connection, Telegram access and browser codec support. MP4 with H.264/AAC is recommended; this backend does not transcode MKV or unsupported codecs.');});
