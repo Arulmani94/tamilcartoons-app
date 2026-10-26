@@ -8,7 +8,8 @@
  // Native fallback remains usable until custom controls have initialized.
  video.controls=false;$('customControls').hidden=false;$('centerActions').hidden=false;
  async function togglePlay(){try{if(video.paused)await video.play();else video.pause();}catch(e){fail('Could not start playback. Check the connection and media format.');}}
- $('play').addEventListener('click',togglePlay);
+ $('play').addEventListener('click',togglePlay);$('miniPlay').addEventListener('click',togglePlay);
+ $('railPrev').addEventListener('click',()=>$('prev').click());$('railNext').addEventListener('click',()=>$('next').click());
  video.addEventListener('click',()=>{if($('watchStage').classList.contains('controls-idle'))showControls();else togglePlay();});
  let idleTimer;
  function showControls(){clearTimeout(idleTimer);$('watchStage').classList.remove('controls-idle');if(!video.paused)idleTimer=setTimeout(()=>{if(!$('watchStage').contains(document.activeElement))$('watchStage').classList.add('controls-idle');},2800);}
@@ -18,7 +19,7 @@
  function skip(seconds){if(!Number.isFinite(video.duration))return;video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+seconds));}
  $('rewind').addEventListener('click',()=>skip(-10));
  $('forward').addEventListener('click',()=>skip(10));
- video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');});
+ video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');$('miniPlay').textContent='Ⅱ';$('miniPlay').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');$('miniPlay').textContent='▶';$('miniPlay').setAttribute('aria-label','Play');});
  const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
  video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(video.duration);$('seek').value=video.duration?video.currentTime/video.duration*100:0;});
  $('seek').addEventListener('input',()=>{if(Number.isFinite(video.duration))video.currentTime=Number($('seek').value)/100*video.duration;});
@@ -58,12 +59,13 @@
   const anime=await query(db().from('anime').select('id,name,poster_url').eq('id',season.anime_id).single());
   const backdrop=TC.safeImage?TC.safeImage(anime.poster_url):'';
   if(backdrop)document.body.style.setProperty('--watch-backdrop','url('+JSON.stringify(backdrop)+')');
+  function watchCard(x,number=season.season_number){const code='S'+String(number).padStart(2,'0')+'E'+String(x.episode_number).padStart(2,'0');return TC.episodeCard(x,ep.id).replace('<span class="episode-label">','<span class="episode-label"><small class="episode-code">'+esc(code)+'</small><br>');}
   $('title').textContent=anime.name;$('meta').textContent=(season.season_name||'Season '+season.season_number)+' · Episode '+ep.episode_number;document.title=anime.name+' · Episode '+ep.episode_number;
   $('back').href='anime.html?id='+encodeURIComponent(anime.id);$('back').textContent='← '+anime.name;
   // Navigation uses authoritative DB ordering, not a caller-supplied list of IDs.
   try{
    const rows=await allEpisodes(season.id);const index=rows.findIndex(x=>String(x.id)===String(ep.id));
-   $('episodes').innerHTML=rows.map(x=>TC.episodeCard(x,ep.id)).join('');
+   $('episodes').innerHTML=rows.map(x=>watchCard(x)).join('');
    const seasons=await query(db().from('seasons').select('id,season_number,season_name').eq('anime_id',anime.id).order('season_number').order('id'));
    $('seasonTabs').innerHTML=seasons.map(s=>`<button type="button" data-season="${esc(s.id)}" aria-pressed="${String(s.id)===String(season.id)}">${esc(s.season_name||'Season '+s.season_number)}</button>`).join('');
    let seasonVersion=0;
@@ -73,11 +75,11 @@
     for(const tab of $('seasonTabs').querySelectorAll('button'))tab.setAttribute('aria-pressed',String(tab===button));
     TC.message('episodes','Loading episodes…');
     try{const episodes=await allEpisodes(button.dataset.season);if(version!==seasonVersion)return;
-     $('episodes').innerHTML=episodes.map(x=>TC.episodeCard(x,ep.id)).join('');
+     $('episodes').innerHTML=episodes.map(x=>watchCard(x,seasons.find(s=>String(s.id)===button.dataset.season)?.season_number||season.season_number)).join('');
      if(!episodes.length)TC.message('episodes','No episodes in this season yet.');
     }catch(e){if(version===seasonVersion)TC.message('episodes',e.message,true);}
    });
-   for(const [button,target] of [[$('prev'),index-1],[$('next'),index+1]]){if(index>=0&&target>=0&&target<rows.length){button.disabled=false;button.addEventListener('click',()=>{location.href=episodeUrl(rows[target].id);});}}
+   for(const [button,target] of [[$('prev'),index-1],[$('next'),index+1]]){if(index>=0&&target>=0&&target<rows.length){button.disabled=false;$(button.id==='prev'?'railPrev':'railNext').disabled=false;button.addEventListener('click',()=>{location.href=episodeUrl(rows[target].id);});}}
   }catch(e){TC.message('episodes','Could not load episode navigation. '+e.message,true);}
   if(!TC_CONFIG.backendUrl)throw new Error('The administrator must set backendUrl in assets/js/config.js to the actual Render HTTPS service origin.');
   const base=new URL(TC_CONFIG.backendUrl);
