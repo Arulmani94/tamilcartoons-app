@@ -104,7 +104,7 @@
   const anime=await query(db().from('anime').select('id,name,poster_url').eq('id',season.anime_id).single());
   const backdrop=TC.safeImage?TC.safeImage(anime.poster_url):'';
   if(backdrop)document.body.style.setProperty('--watch-backdrop','url('+JSON.stringify(backdrop)+')');
-  function watchCard(x,number=season.season_number){const code='S'+String(number).padStart(2,'0')+'E'+String(x.episode_number).padStart(2,'0');return TC.episodeCard(x,ep.id).replace('<span class="episode-label">','<span class="episode-label"><small class="episode-code">'+esc(code)+'</small><br>');}
+  function watchCard(x,number=season.season_number){const code='S'+String(number).padStart(2,'0')+'E'+String(x.episode_number).padStart(2,'0');return TC.episodeCard(x,ep.id,anime.poster_url).replace('<span class="episode-label">','<span class="episode-label"><small class="episode-code">'+esc(code)+'</small><br>');}
   $('title').textContent=anime.name;$('meta').textContent=(season.season_name||'Season '+season.season_number)+' · Episode '+ep.episode_number;document.title=anime.name+' · Episode '+ep.episode_number;
   $('back').href='anime.html?id='+encodeURIComponent(anime.id);$('back').textContent='← '+anime.name;
   // Navigation uses authoritative DB ordering, not a caller-supplied list of IDs.
@@ -129,7 +129,7 @@
   if(!TC_CONFIG.backendUrl)throw new Error('The administrator must set backendUrl in assets/js/config.js to the actual Render HTTPS service origin.');
   const base=new URL(TC_CONFIG.backendUrl);
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new Error('The production backend must be an HTTPS origin without a path.');
-  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;video.poster=TC.thumbnailUrl(ep);
+  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;TC.videoPoster(video,ep,anime.poster_url);
   // A bounded health check distinguishes configuration errors from codec errors.
   $('status').textContent='Checking video server…';
   try{const response=await fetch(new URL('/health',base),{signal:AbortSignal.timeout(75000)});if(!response.ok)throw new Error('Video server is not ready (HTTP '+response.status+'). Check Render logs and Telegram session.');const info=await response.json();if(!info.telegram_ready)throw new Error('Telegram session is not ready.');}

@@ -22,9 +22,9 @@ window.TC = (() => {
   function thumbnailUrl(ep) {
     try { const ids=telegramIds(ep),u=new URL('/thumbnail',TC_CONFIG.backendUrl); if(u.protocol!=='https:')return '';u.searchParams.set('channel_id',ids.channel);u.searchParams.set('message_id',ids.message);return u.href; } catch { return ''; }
   }
-  function episodeCard(ep, current) {
-    const src=thumbnailUrl(ep),active=String(ep.id)===String(current);
-    return `<a class="episode ${active?'active':''}" href="${episodeUrl(ep.id)}" ${active?'aria-current="page"':''}><div class="episode-thumb"><span class="thumb-placeholder">Preview unavailable</span>${src?`<img src="${esc(src)}" alt="Episode ${esc(ep.episode_number)} video thumbnail" loading="lazy" decoding="async">`:''}<span class="episode-number">${esc(ep.episode_number)}</span><span class="episode-play" aria-hidden="true">▶</span></div><span class="episode-label">Episode ${esc(ep.episode_number)}</span></a>`;
+  function episodeCard(ep, current, fallbackPoster = '') {
+    const fallback=safeImage(fallbackPoster),preview=thumbnailUrl(ep),src=preview||fallback,active=String(ep.id)===String(current);
+    return `<a class="episode ${active?'active':''}" href="${episodeUrl(ep.id)}" ${active?'aria-current="page"':''}><div class="episode-thumb"><span class="thumb-placeholder">Preview unavailable</span>${src?`<img src="${esc(src)}" alt="Episode ${esc(ep.episode_number)} preview" ${fallback&&preview&&fallback!==preview?`data-fallback="${esc(fallback)}"`: ''} loading="lazy" decoding="async">`:''}<span class="episode-number">${esc(ep.episode_number)}</span><span class="episode-play" aria-hidden="true">▶</span></div><span class="episode-label">Episode ${esc(ep.episode_number)}</span></a>`;
   }
   async function allEpisodes(seasonId) {
     // Respect PostgREST page limits; deterministic order prevents repeated boundary rows.
@@ -50,6 +50,17 @@ window.TC = (() => {
     return {channel, message};
   }
   // Hide failed posters without inline event-handler attributes.
-  document.addEventListener('error', e => { if (e.target.tagName === 'IMG') e.target.hidden = true; }, true);
-  return {$,esc,safeImage,db,query,animeColumns,episodeColumns,message,poster,cards,episodeUrl,allEpisodes,telegramIds,thumbnailUrl,episodeCard};
+  document.addEventListener('error', e => {
+    const img=e.target;if(img.tagName!=='IMG')return;
+    const fallback=safeImage(img.dataset.fallback);delete img.dataset.fallback;
+    if(fallback&&img.src!==fallback){img.hidden=false;img.src=fallback;img.alt='Episode post image';}
+    else img.hidden=true;
+  }, true);
+  function videoPoster(video,ep,fallbackPoster){
+    const fallback=safeImage(fallbackPoster),preview=thumbnailUrl(ep);
+    if(fallback||preview)video.poster=fallback||preview;
+    if(preview){const image=new Image();image.onload=()=>{video.poster=preview;};image.onerror=()=>{if(fallback)video.poster=fallback;};image.src=preview;}
+  }
+
+  return {$,esc,safeImage,db,query,animeColumns,episodeColumns,message,poster,cards,episodeUrl,allEpisodes,telegramIds,thumbnailUrl,episodeCard,videoPoster};
 })();

@@ -13,10 +13,13 @@
   const seasons=await query(db().from('seasons').select('id,anime_id,season_number,season_name,created_at').eq('anime_id',id).order('season_number').order('id'));
   if(!seasons.length){message('episodes','No seasons have been added yet.');return;}
   $('seasons').innerHTML=seasons.map(s=>`<option value="${esc(s.id)}">${esc(s.season_name||'Season '+s.season_number)}</option>`).join('');$('seasons').disabled=false;
+  $('animeSeasonTabs').innerHTML=seasons.map(s=>`<button type="button" data-season="${esc(s.id)}" aria-pressed="${String(s.id)===String($('seasons').value)}">${esc(s.season_name||'Season '+s.season_number)}</button>`).join('');
+  $('animeSeasonTabs').addEventListener('click',event=>{const button=event.target.closest('button[data-season]');if(!button)return;$('seasons').value=button.dataset.season;loadSeason();});
   async function loadSeason(){
+   for(const button of $('animeSeasonTabs').querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.season===$('seasons').value));
    const version=++loadVersion;message('episodes','Loading episodes…');
    try{const rows=await allEpisodes($('seasons').value);if(version!==loadVersion)return;
-    $('episodes').innerHTML=rows.map(ep=>TC.episodeCard(ep)).join('');if(!rows.length)message('episodes','No episodes in this season yet.');
+    $('episodes').innerHTML=rows.map(ep=>TC.episodeCard(ep,null,a.poster_url)).join('');if(!rows.length)message('episodes','No episodes in this season yet.');
    }catch(e){if(version===loadVersion)message('episodes','Could not load episodes. '+e.message,true);}
   }
   $('seasons').addEventListener('change',loadSeason);await loadSeason();

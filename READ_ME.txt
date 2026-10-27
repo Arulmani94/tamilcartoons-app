@@ -1,19 +1,23 @@
-PLAYER V7 — SKY BLUE
+TAMILCARTOONS — PURPLE MOBILE V8
 
-Replace exactly these GitHub files, keeping paths:
+Extract this ZIP. Replace these SEVEN existing files in GitHub, keeping paths:
+index.html
+anime.html
 player.html
-assets/js/player.js
 assets/css/app.css
+assets/js/common.js
+assets/js/anime.js
+assets/js/player.js
 
-Commit, wait for GitHub Pages deploy, then refresh. Download/extract this newest ZIP; do not upload the ZIP itself. No Supabase SQL or Render changes are needed.
+Commit changes, wait for GitHub Pages deployment, then refresh. No SQL or Render changes needed. Keep other files, including admin.html, config.js and the Telegram backend. Upload the extracted files, not the ZIP.
 
 Changes:
-- Sky blue player accents.
-- Transparent center Play/Pause, with 10-second reverse/forward on either side.
-- Double tap left/right part of the video to seek -10/+10 seconds.
-- Single tap background toggles controls; use Play/Pause button to pause.
-- Buffering indicator and loading message are INSIDE the video, not below its title.
-- Swipe up or tap Fullscreen to expand. Requests native fullscreen and orientation lock. If portrait orientation remains on a narrow screen, rotates the player and controls into landscape inside fullscreen/viewport fallback. Original video ratio is preserved without stretching.
-- Existing episode sidebar and navigation retained.
+- Full-width 16:9 inline video on mobile, as marked in the reference screenshot.
+- Purple styling on homepage, detail page and player.
+- Horizontal scrollable season buttons on anime detail and player pages.
+- Mobile episodes are three thumbnail cards per row, with normal downward page scrolling. Desktop player keeps the episode sidebar.
+- Telegram video thumbnails are attempted first. If unavailable or broken, cards use the anime post poster_url; the player poster also falls back to that image. If both images fail, the existing missing-preview placeholder remains. No endless fallback requests.
+- Existing swipe fullscreen, rotated portrait fallback, double-tap seek, inline buffering and transparent playback controls retained.
+- Versioned CSS/JS links reduce stale cache conflicts.
 
-Browser fullscreen origin/exit notifications are controlled by the browser, not this website. Actual mobile hardware is not available for testing; synthetic touch and mobile viewport checks pass, along with actual local-video seek/play tests (11 browser checks).
+Validation: 13 browser checks passed, including real local-media playback/seek, gestures, mobile layout, image-error fallback and broken fallback handling. Actual phone hardware and production deployment were not tested/applied by this ZIP.
