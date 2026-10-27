@@ -2,37 +2,45 @@
 (async()=>{
  const {$,db,query,episodeColumns,allEpisodes,episodeUrl,esc,telegramIds}=TC;
  const video=$('video');let source='',originalSource='',compatibilityTried=false,preparing=false,wantsPlay=false,pageClosed=false;
- function fail(text){$('playbackError').textContent=text;$('playbackError').hidden=false;$('status').textContent='Playback unavailable';$('retry').hidden=!source;}
- function connect(){if(!source)return;$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
+ function fail(text){$('videoLoading').style.display='none';$('playbackError').textContent=text;$('playbackError').hidden=false;$('status').textContent='Playback unavailable';$('retry').hidden=!source;}
+ function connect(){if(!source)return;$('videoLoading').style.removeProperty('display');$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
  $('retry').addEventListener('click',()=>{if(compatibilityTried)prepareCompatible(true);else connect();});
  window.addEventListener('pagehide',()=>{pageClosed=true;});
+ let hlsPlayer=null;
+ window.addEventListener('pagehide',()=>{if(hlsPlayer)hlsPlayer.destroy();});
  async function prepareCompatible(retryFailed=false){
   if(preparing||!originalSource)return;
-  compatibilityTried=true;preparing=true;$('playbackError').hidden=true;$('retry').hidden=true;
-  $('play').disabled=true;$('miniPlay').disabled=true;
+  compatibilityTried=true;preparing=true;$('videoLoading').style.removeProperty('display');$('playbackError').hidden=true;$('retry').hidden=true;
+  $('status').textContent='Starting video…';
   video.removeAttribute('src');video.load();
-  const url=new URL(originalSource);url.pathname='/prepare';if(retryFailed)url.searchParams.set('retry_failed','true');
+  if(hlsPlayer){hlsPlayer.destroy();hlsPlayer=null;}
+  const url=new URL(originalSource);url.pathname='/start-stream';if(retryFailed)url.searchParams.set('retry','true');
   try{
-   const deadline=Date.now()+40*60*1000;
+   const deadline=Date.now()+180000;
    while(!pageClosed&&Date.now()<deadline){
     const response=await fetch(url,{signal:AbortSignal.timeout(60000)});
-    let result;try{result=await response.json();}catch{throw new Error('Update the Render backend and Dockerfile for MP4/MKV compatibility.');}
-    if(!response.ok)throw new Error(result.detail||'Video preparation failed (HTTP '+response.status+').');
-    url.searchParams.delete('retry_failed');
-    if(result.state==='error')throw new Error(result.error||'Video conversion failed. Check Render logs.');
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.detail||'Streaming server unavailable.');
+    url.searchParams.delete('retry');
+    if(result.state==='error')throw new Error(result.error||'Video stream failed.');
     if(result.state==='ready'){
-     url.pathname='/prepared-video';source=url.href;connect();
-     if(wantsPlay)video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
+     source=new URL('/hls/'+result.token+'/index.m3u8',originalSource).href;
+     if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=source;video.load();}
+     else if(window.Hls&&Hls.isSupported()){
+      hlsPlayer=new Hls({startPosition:0,maxBufferLength:20,maxMaxBufferLength:40});
+      hlsPlayer.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal)fail('Video connection interrupted. Retry playback.');});
+      hlsPlayer.loadSource(source);hlsPlayer.attachMedia(video);
+     }else throw new Error('Use an updated Chrome, Edge, Firefox or Safari browser to play this stream.');
+     $('status').textContent='Buffering…';
+     video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
      return;
     }
-    if(result.state==='downloading'){$('videoLoading').classList.add('has-progress');$('videoLoading').style.setProperty('--load-progress',Math.max(0,Math.min(100,result.progress||0))+'%');}else $('videoLoading').classList.remove('has-progress');
-    const stages={downloading:'Preparing video: downloading '+(result.progress||0)+'%',inspecting:'Preparing video: checking actual format…',remuxing:'Preparing video: packaging as MP4…',transcoding:'Preparing video: converting codecs…',busy:'Preparing video: waiting for server…'};
-    $('status').textContent=stages[result.state]||'Preparing video…';
-    await new Promise(resolve=>setTimeout(resolve,2000));
+    $('status').textContent=result.state==='busy'?'Video server busy. Waiting…':'Starting video…';
+    await new Promise(resolve=>setTimeout(resolve,1000));
    }
-   if(!pageClosed)throw new Error('Preparation took too long. Retry later.');
+   if(!pageClosed)throw new Error('Video server is taking too long. Retry playback.');
   }catch(error){if(!pageClosed)fail(error.message);}
-  finally{preparing=false;$('videoLoading').classList.remove('has-progress');$('play').disabled=false;$('miniPlay').disabled=false;}
+  finally{preparing=false;}
  }
  // Native fallback remains usable until custom controls have initialized.
  video.controls=false;$('customControls').hidden=false;$('centerActions').hidden=false;
@@ -48,8 +56,8 @@
  $('watchStage').addEventListener('click',event=>{const button=event.target.closest('button');if(button&&event.detail>0){button.blur();showControls();}});
  video.addEventListener('playing',showControls);video.addEventListener('pause',showControls);video.addEventListener('ended',showControls);
  function skip(seconds){
-  if(!Number.isFinite(video.duration)||video.duration<=0)return;
-  video.currentTime=Math.max(0,Math.min(video.duration,video.currentTime+seconds));
+  const end=seekEnd();if(end<=0)return;
+  video.currentTime=Math.max(0,Math.min(end,video.currentTime+seconds));
   const feedback=$('seekFeedback');feedback.textContent=seconds>0?'10 seconds →':'← 10 seconds';feedback.dataset.side=seconds>0?'right':'left';feedback.hidden=false;
   clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>{feedback.hidden=true;},650);
  }
@@ -63,15 +71,16 @@
   clearTimeout(tapTimer);lastTap={side,at:now};tapTimer=setTimeout(()=>{lastTap=null;toggleControls();},320);
  });
  const loading=$('videoLoading');
- function updateLoading(){const busy=/Loading|Checking|Connecting|Buffering|stalled|Seeking|Preparing/i.test($('status').textContent);loading.hidden=!busy;$('watchStage').classList.toggle('is-buffering',busy);}
+ function updateLoading(){const busy=/Loading|Starting|busy|Checking|Connecting|Buffering|stalled|Seeking|Preparing/i.test($('status').textContent);loading.hidden=!busy;$('watchStage').classList.toggle('is-buffering',busy);}
  new MutationObserver(updateLoading).observe($('status'),{childList:true,characterData:true,subtree:true});updateLoading();
  video.addEventListener('seeking',()=>{$('status').textContent='Seeking…';});
  video.addEventListener('seeked',()=>{$('status').textContent=video.readyState>=3?(video.paused?'Paused':'Playing'):'Buffering…';});
  video.addEventListener('canplay',()=>{$('status').textContent=video.paused?'Ready. Press Play to watch.':'Playing';});
  video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');$('miniPlay').textContent='Ⅱ';$('miniPlay').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');$('miniPlay').textContent='▶';$('miniPlay').setAttribute('aria-label','Play');});
+ function seekEnd(){return Number.isFinite(video.duration)?video.duration:(video.seekable.length?video.seekable.end(video.seekable.length-1):0);}
  const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
- video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(video.duration);$('seek').value=video.duration?video.currentTime/video.duration*100:0;});
- $('seek').addEventListener('input',()=>{if(Number.isFinite(video.duration))video.currentTime=Number($('seek').value)/100*video.duration;});
+ video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(seekEnd());const end=seekEnd();$('seek').value=end?video.currentTime/end*100:0;});
+ $('seek').addEventListener('input',()=>{const end=seekEnd();if(end>0)video.currentTime=Number($('seek').value)/100*end;});
  $('mute').addEventListener('click',()=>{video.muted=!video.muted;});video.addEventListener('volumechange',()=>{$('mute').textContent=video.muted?'Unmute':'Mute';$('volume').value=video.volume;});
  $('volume').addEventListener('input',()=>{video.volume=Number($('volume').value);});$('speed').addEventListener('change',()=>{video.playbackRate=Number($('speed').value);});
  const stage=$('watchStage');
@@ -159,19 +168,11 @@
   const base=new URL(TC_CONFIG.backendUrl);
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new Error('The production backend must be an HTTPS origin without a path.');
   const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;originalSource=source;video.removeAttribute('poster');
-  // A bounded health check distinguishes configuration errors from codec errors.
-  $('status').textContent='Checking video server…';
-  try{const response=await fetch(new URL('/health',base),{signal:AbortSignal.timeout(75000)});if(!response.ok)throw new Error('Video server is not ready (HTTP '+response.status+'). Check Render logs and Telegram session.');const info=await response.json();if(!info.telegram_ready)throw new Error('Telegram session is not ready.');}
-  catch(e){fail(e.name==='TimeoutError'?'The video server took too long to wake up. Retry in a minute.':e.message);return;}
-  const probe=await fetch(source,{method:'HEAD',signal:AbortSignal.timeout(45000)});
-  if(!probe.ok){
-   const reasons={403:'This episode uses a Telegram channel that is not allowed. Edit its Telegram link in Admin; sample links will not play.',404:'The Telegram message has no accessible video. Check the episode link and channel access.',415:'This Telegram message is not a video file.',503:'Telegram is not ready. Check Render logs.'};
-   fail(reasons[probe.status]||'Video request failed (HTTP '+probe.status+').');return;
-  }
+  $('status').textContent='Connecting to video server…';
   const inspectUrl=new URL(source);inspectUrl.pathname='/media-info';
   const inspected=await fetch(inspectUrl,{signal:AbortSignal.timeout(45000)});
-  if(!inspected.ok)throw new Error('Update Render with the new stream_server.py and Dockerfile for format checking (HTTP '+inspected.status+').');
+  if(!inspected.ok){const reasons={403:'This episode uses a Telegram channel that is not allowed. Edit its Telegram link in Admin; sample links will not play.',404:'The Telegram message has no accessible video.',503:'Video server is not ready. Retry shortly.'};throw new Error(reasons[inspected.status]||'Video server error (HTTP '+inspected.status+').');}
   const mediaInfo=await inspected.json();
-  if(mediaInfo.needs_preparation)await prepareCompatible();else connect();
+  if(mediaInfo.needs_preparation)await prepareCompatible();else {connect();video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});}
  }catch(e){fail(e.message);}
 })();

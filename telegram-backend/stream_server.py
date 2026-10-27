@@ -1,5 +1,7 @@
 """Bounded-memory Telegram byte streaming. One Uvicorn worker per session."""
 import asyncio
+import secrets
+from urllib.parse import urlencode
 import logging
 import json
 import shutil
@@ -119,6 +121,11 @@ async def lifespan(app):
     try:
         yield
     finally:
+        tasks = [j['task'] for j in hls_jobs.values() if not j.get('finished')]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         client = app.state.telegram
         if client:
             if client.is_initialized:
@@ -330,7 +337,7 @@ async def prepare(channel_id: str = Query(..., max_length=40), message_id: int =
             job = None
         if job:
             return {k: job[k] for k in ('state', 'progress', 'error') if k in job}
-        if any(j['state'] not in ('ready', 'error') for j in prepared.values()):
+        if any(j['state'] not in ('ready', 'error') for j in prepared.values()) or any(not j.get('finished') for j in hls_jobs.values()):
             return JSONResponse({'state': 'busy', 'detail': 'Another video is being prepared. Waiting…'}, status_code=202)
         if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
             raise HTTPException(503, 'Deploy updated Dockerfile with FFmpeg before using compatibility playback')
@@ -391,3 +398,107 @@ async def prepared_video(request: Request, channel_id: str = Query(..., max_leng
 if __name__ == '__main__':
     import uvicorn
     uvicorn.run(app, host='0.0.0.0', port=int(os.getenv('PORT', '10000')), workers=1, access_log=False)
+
+
+# Progressive HLS: publish each completed segment while Telegram is still feeding
+# FFmpeg. Originals never need to be saved in full before playback starts.
+hls_jobs = {}
+hls_lock = asyncio.Lock()
+HLS_ROOT = Path(tempfile.mkdtemp(prefix='tc-hls-'))
+
+
+def hls_args(source, folder):
+    return ['ffmpeg', '-v', 'error', '-nostdin', '-y',
+            '-protocol_whitelist', 'http,tcp', '-rw_timeout', '30000000',
+            '-probesize', '2097152', '-analyzeduration', '2000000', '-format_whitelist', PREP_FORMATS, '-i', source,
+            '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25',
+            '-threads', '1', '-maxrate', '2000k', '-bufsize', '4000k', '-pix_fmt', 'yuv420p',
+            '-vf', "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+            '-force_key_frames', 'expr:gte(t,n_forced*2)',
+            '-c:a', 'aac', '-b:a', '128k', '-f', 'hls', '-hls_time', '2',
+            '-hls_playlist_type', 'event', '-hls_flags', 'independent_segments+temp_file',
+            '-hls_segment_filename', str(folder / 'seg%06d.ts'), str(folder / 'index.m3u8')]
+
+
+async def run_hls(job, source):
+    process = None
+    try:
+        process = await asyncio.create_subprocess_exec(*hls_args(source, job['folder']),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+        job['process'] = process
+        deadline = time.monotonic() + 7200
+        while process.returncode is None:
+            if time.monotonic() > deadline:
+                raise RuntimeError('Streaming time limit reached')
+            if sum(p.stat().st_size for p in job['folder'].iterdir() if p.is_file()) > PREP_MAX:
+                raise RuntimeError('Streaming cache limit reached')
+            if shutil.disk_usage(HLS_ROOT).free < 128 * 1024 * 1024:
+                raise RuntimeError('Video server storage is full')
+            if (job['folder'] / 'index.m3u8').exists():
+                job['state'] = 'ready'
+            await asyncio.sleep(.5)
+        if process.returncode or not (job['folder'] / 'index.m3u8').exists():
+            raise RuntimeError('This video could not be streamed. Check its source or upload an H.264/AAC MP4.')
+        job['state'] = 'ready'
+    except Exception as exc:
+        job['state'], job['error'] = 'error', str(exc) if isinstance(exc, RuntimeError) else 'Streaming failed; retry later'
+    finally:
+        if process and process.returncode is None:
+            process.kill()
+            await process.wait()
+        job['finished'] = True
+        job['updated'] = time.monotonic()
+
+
+@app.get('/start-stream')
+async def start_stream(channel_id: str = Query(..., max_length=40),
+                       message_id: int = Query(..., ge=1, le=2147483647), retry: bool = False):
+    await lookup_media(channel_id, message_id)
+    key = (str(channel_value(channel_id)), message_id)
+    async with hls_lock:
+        job = hls_jobs.get(key)
+        if job and job['state'] == 'error' and retry:
+            shutil.rmtree(job['folder'], ignore_errors=True)
+            del hls_jobs[key]
+            job = None
+        if job is None:
+            # Completed unused jobs expire. Never evict a job actively encoding.
+            for oldkey, old in list(hls_jobs.items()):
+                if old.get('finished') and time.monotonic() - old['updated'] > 3600:
+                    shutil.rmtree(old['folder'], ignore_errors=True)
+                    del hls_jobs[oldkey]
+            if any(not j.get('finished') for j in hls_jobs.values()) or any(j['state'] not in ('ready', 'error') for j in prepared.values()):
+                return JSONResponse({'state': 'busy'}, status_code=202)
+            used = sum(p.stat().st_size for p in HLS_ROOT.rglob('*') if p.is_file())
+            if used > 512 * 1024 * 1024 or len(hls_jobs) >= 4:
+                raise HTTPException(503, 'Streaming cache is busy; retry later')
+            if not shutil.which('ffmpeg'):
+                raise HTTPException(503, 'Deploy Dockerfile with FFmpeg')
+            token = secrets.token_hex(16)
+            folder = HLS_ROOT / token
+            folder.mkdir()
+            job = {'token': token, 'folder': folder, 'state': 'starting', 'finished': False, 'updated': time.monotonic(), 'key': key}
+            hls_jobs[key] = job
+            source = 'http://127.0.0.1:' + os.getenv('PORT', '10000') + '/video?' + urlencode({'channel_id': key[0], 'message_id': message_id})
+            job['task'] = asyncio.create_task(run_hls(job, source))
+        job['updated'] = time.monotonic()
+        return {k: job[k] for k in ('state', 'token', 'error') if k in job}
+
+
+@app.get('/hls/{token}/{filename}')
+async def hls_file(token: str, filename: str):
+    if not re.fullmatch(r'[0-9a-f]{32}', token) or not re.fullmatch(r'index\.m3u8|seg[0-9]{6}\.ts', filename):
+        raise HTTPException(404, 'Stream unavailable')
+    job = next((j for j in hls_jobs.values() if j['token'] == token), None)
+    if not job:
+        raise HTTPException(404, 'Stream expired; reload episode')
+    await lookup_media(*job['key'])
+    path = job['folder'] / filename
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        raise HTTPException(404, 'Segment not ready')
+    job['updated'] = time.monotonic()
+    return Response(data, media_type='application/vnd.apple.mpegurl' if filename.endswith('.m3u8') else 'video/mp2t',
+                    headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
