@@ -1,4 +1,4 @@
-TAMILCARTOONS V9 — VIDEO COMPATIBILITY + RUNNING SHINCHAN LOGO
+TAMILCARTOONS V10 — RAIN LOADING, NO PLAYER POSTER
 
 INSTALL
 1. Extract this ZIP. Replace/upload all website files using exactly the folder paths in this ZIP. Do NOT delete other repository files. Keep your config.js, backend environment variables and existing requirements.txt.
@@ -9,7 +9,7 @@ No Supabase SQL changes are required. No new private credentials are required.
 
 BEHAVIOR
 - Home catalogue photos display in 16:9 landscape cards.
-- Shinchan cutout is the header logo and favicon. Loading uses four running frames on a genuinely transparent sprite sheet; a translucent silhouette fills upward. The download fill reflects actual server download progress; codec conversion uses an indeterminate loop.
+- Shinchan cutout is the header logo and favicon. Loading now uses a transparent umbrella-Shinchan sprite inspired by your supplied GIF. CSS rain covers the whole video viewport. Download progress is shown as text; rain and the character animate while preparing/buffering. The original GIF is not edited frame-for-frame; this is a newly generated four-frame version of the umbrella character.
 - Normal MP4 files play directly. Actual container bytes are checked, rather than trusting .mp4 names or Telegram MIME labels.
 - MKV, MPEG-TS and other supported FFmpeg containers are prepared as MP4 before playback. H.264/yuv420p video is copied when possible; incompatible video is converted to H.264. Non-AAC audio becomes AAC. Conversion selects the first non-cover video and first audio track, and omits embedded subtitles/data tracks.
 - Prepared MP4 supports HTTP byte ranges for seek, reverse/forward and browser duration. Existing purple theme, mobile layout, double-tap seek, swipe fullscreen, thumbnail/post-photo fallback and bulk-import fixes are included.
@@ -27,3 +27,6 @@ Built-in image_gen was used. Asset paths: assets/img/shinchan-loading.png and as
 REFERENCE DOCUMENTATION
 https://www.ffmpeg.org/ffmpeg-formats.html
 https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/Containers
+
+V10 CHANGE: Video player has NO thumbnail/poster, even before Play. Episode cards BELOW/BESIDE the player retain Telegram thumbnails and post-photo fallback. Rain/character appears only while loading and disappears when ready. The app header logo remains the Shinchan logo from V9.
+V10 validation: 18 frontend checks passed, including no-player-poster, preserved episode previews, full-player rain bounds and loader hidden after preparation. Backend unchanged from V9.

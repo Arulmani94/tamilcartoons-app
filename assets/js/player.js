@@ -158,7 +158,7 @@
   if(!TC_CONFIG.backendUrl)throw new Error('The administrator must set backendUrl in assets/js/config.js to the actual Render HTTPS service origin.');
   const base=new URL(TC_CONFIG.backendUrl);
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new Error('The production backend must be an HTTPS origin without a path.');
-  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;originalSource=source;TC.videoPoster(video,ep,anime.poster_url);
+  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;originalSource=source;video.removeAttribute('poster');
   // A bounded health check distinguishes configuration errors from codec errors.
   $('status').textContent='Checking video server…';
   try{const response=await fetch(new URL('/health',base),{signal:AbortSignal.timeout(75000)});if(!response.ok)throw new Error('Video server is not ready (HTTP '+response.status+'). Check Render logs and Telegram session.');const info=await response.json();if(!info.telegram_ready)throw new Error('Telegram session is not ready.');}
