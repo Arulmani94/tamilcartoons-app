@@ -566,7 +566,7 @@ footer {
 
             <div class="notice">
                 First select Anime and Season. Then paste Telegram video links.
-                One link creates one episode. The next episode number is
+                Paste one video link per line. Repeated links and videos already in this season are skipped. Imports save in batches of 100. The next episode number is
                 calculated from the existing episodes in that season.
             </div>
 
@@ -1360,7 +1360,7 @@ function parseTelegramLink(rawLink) {
             throw new Error("Invalid Telegram channel username: " + rawLink);
         }
 
-        channelId = "@" + username;
+        channelId = "@" + username.toLowerCase();
     }
 
     if (!/^\d+$/.test(messageId)) {
@@ -1393,138 +1393,109 @@ function getParsedLinks() {
         throw new Error("No Telegram links found.");
     }
 
-    const parsed = links.map(parseTelegramLink);
-
-    const seen = new Set();
-
-    for (const item of parsed) {
-        const key =
-            item.telegram_channel_id + ":" +
-            item.telegram_message_id;
-
-        if (seen.has(key)) {
-            throw new Error(
-                "The same Telegram video link appears more than once."
-            );
-        }
-
-        seen.add(key);
+    const unique = [], seen = new Set();
+    let duplicateCount = 0;
+    for (const [index, rawLink] of links.entries()) {
+        let item;
+        try { item = parseTelegramLink(rawLink); }
+        catch (error) { throw new Error("Link " + (index + 1) + ": " + error.message); }
+        const key = telegramKey(item);
+        if (seen.has(key)) { duplicateCount++; continue; }
+        seen.add(key); unique.push(item);
     }
-
-    return parsed;
+    return { links: unique, duplicateCount, total: links.length };
 }
 
-/* ==========================================================
-   EPISODE PREVIEW
-   ========================================================== */
+function telegramKey(item) {
+    return String(item.telegram_channel_id).toLowerCase() + ":" + Number(item.telegram_message_id);
+}
 
-$("previewLinksBtn").addEventListener("click", () => {
+async function readSeasonEpisodes(seasonId) {
+    const rows = [];
+    for (let offset = 0; ; offset += 500) {
+        const result = await db.from("episodes")
+            .select("id,season_id,episode_number,telegram_channel_id,telegram_message_id,telegram_link")
+            .eq("season_id", seasonId).order("episode_number").order("id").range(offset, offset + 499);
+        if (result.error) throw result.error;
+        rows.push(...result.data);
+        if (result.data.length < 500) return rows;
+    }
+}
+
+function importPlan(parsed, existing, seasonId) {
+    const saved = new Set(existing.map(telegramKey));
+    const fresh = parsed.links.filter(item => !saved.has(telegramKey(item)));
+    const first = existing.reduce((max, item) => Math.max(max, Number(item.episode_number) || 0), 0) + 1;
+    if (!Number.isSafeInteger(first + fresh.length)) throw new Error("Episode number is too large.");
+    return {
+        records: fresh.map((item, index) => ({ season_id: seasonId, episode_number: first + index, ...item })),
+        pastedDuplicates: parsed.duplicateCount,
+        alreadySaved: parsed.links.length - fresh.length,
+        total: parsed.total
+    };
+}
+function importSummary(plan) {
+    return plan.records.length + " new episode(s). " + plan.pastedDuplicates +
+        " repeated pasted link(s) skipped. " + plan.alreadySaved + " already in this season skipped.";
+}
+
+let previewVersion = 0, importingEpisodes = false;
+$("previewLinksBtn").addEventListener("click", async () => {
+    if (importingEpisodes) return;
+    const version = ++previewVersion;
     clearStatus("episodeStatus");
-
+    $("linkPreview").classList.add("hidden");
     try {
         const seasonId = $("episodeSeason").value;
-
-        if (!seasonId) {
-            throw new Error("Select Anime and Season first.");
-        }
-
-        const links = getParsedLinks();
-
-        const existing = episodeCache.filter(
-            episode => String(episode.season_id) === String(seasonId)
-        );
-
-        let nextNumber = existing.reduce(
-            (max, episode) => Math.max(max, Number(episode.episode_number)),
-            0
-        ) + 1;
-
-        const preview = links.map((link, index) => ({
-            episode_number: nextNumber + index,
-            ...link
-        }));
-
-        $("linkPreview").innerHTML =
-            "<strong>Episode Preview</strong><br><br>" +
-            preview.map(item =>
-                "Episode " + item.episode_number +
-                " — " + escapeHTML(item.telegram_link)
-            ).join("<br>");
-
+        if (!seasonId) throw new Error("Select Anime and Season first.");
+        const parsed = getParsedLinks();
+        const existing = await readSeasonEpisodes(seasonId);
+        if (version !== previewVersion || seasonId !== $("episodeSeason").value || importingEpisodes) return;
+        const plan = importPlan(parsed, existing, seasonId);
+        $("linkPreview").innerHTML = "<strong>Episode Preview</strong><br>" + escapeHTML(importSummary(plan)) + "<br><br>" +
+            plan.records.slice(0, 50).map(item => "Episode " + item.episode_number + " — " + escapeHTML(item.telegram_link)).join("<br>") +
+            (plan.records.length > 50 ? "<br>Showing first 50; all " + plan.records.length + " new episodes will be imported." : "");
         $("linkPreview").classList.remove("hidden");
-    } catch (error) {
-        setStatus("episodeStatus", error.message, "error");
-    }
+    } catch (error) { if (version === previewVersion) setStatus("episodeStatus", error.message, "error"); }
 });
-
-/* ==========================================================
-   EPISODES CRUD / BULK IMPORT
-   ========================================================== */
 
 $("episodeForm").addEventListener("submit", async event => {
     event.preventDefault();
-
+    if (importingEpisodes) return;
     clearStatus("episodeStatus");
-
     const seasonId = $("episodeSeason").value;
-
-    if (!seasonId) {
-        setStatus(
-            "episodeStatus",
-            "Select Anime and Season first.",
-            "error"
-        );
-        return;
-    }
-
-    $("importEpisodesBtn").disabled = true;
-    $("importEpisodesBtn").textContent = "Importing...";
-
+    if (!seasonId) { setStatus("episodeStatus", "Select Anime and Season first.", "error"); return; }
+    importingEpisodes = true; ++previewVersion;
+    const controls = ["importEpisodesBtn", "previewLinksBtn", "episodeAnime", "episodeSeason", "telegramLinks"];
+    controls.forEach(id => { $(id).disabled = true; });
+    $("importEpisodesBtn").textContent = "Checking links...";
+    let savedCount = 0, plan;
     try {
-        const links = getParsedLinks();
-
-        const existing = episodeCache.filter(
-            episode => String(episode.season_id) === String(seasonId)
-        );
-
-        let nextNumber = existing.reduce(
-            (max, episode) => Math.max(max, Number(episode.episode_number)),
-            0
-        ) + 1;
-
-        const records = links.map((link, index) => ({
-            season_id: Number(seasonId),
-            episode_number: nextNumber + index,
-            telegram_channel_id: link.telegram_channel_id,
-            telegram_message_id: link.telegram_message_id,
-            telegram_link: link.telegram_link
-        }));
-
-        const { error } = await db.from("episodes").insert(records);
-
-        if (error) throw error;
-
+        const parsed = getParsedLinks();
+        plan = importPlan(parsed, await readSeasonEpisodes(seasonId), seasonId);
+        if (!plan.records.length) {
+            setStatus("episodeStatus", "No new episodes to import. " + importSummary(plan), "ok");
+            return;
+        }
+        const batchSize = 100;
+        for (let offset = 0; offset < plan.records.length; offset += batchSize) {
+            const batch = plan.records.slice(offset, offset + batchSize);
+            $("importEpisodesBtn").textContent = "Importing " + savedCount + "/" + plan.records.length + "...";
+            setStatus("episodeStatus", "Saving episodes " + (offset + 1) + "–" + (offset + batch.length) + " of " + plan.records.length + "...", "");
+            const { error } = await db.from("episodes").insert(batch);
+            if (error) throw error;
+            savedCount += batch.length;
+        }
         $("telegramLinks").value = "";
         $("linkPreview").classList.add("hidden");
-
-        setStatus(
-            "episodeStatus",
-            records.length +
-            " episode(s) saved successfully to Supabase.",
-            "ok"
-        );
-
+        setStatus("episodeStatus", savedCount + " episode(s) saved successfully. " + importSummary(plan), "ok");
         await loadAllData();
     } catch (error) {
-        setStatus(
-            "episodeStatus",
-            "Could not import episodes.\n" +
-            error.message +
-            "\nCheck the Telegram links and ensure they have not already been imported.",
-            "error"
-        );
+        setStatus("episodeStatus", "Import stopped. " + savedCount + " episode(s) confirmed saved in this attempt.\n" +
+            error.message + "\nYour links are kept. Fix the error, then retry; links already saved in this season will be skipped.", "error");
     } finally {
-        $("importEpisodesBtn").disabled = false;
+        importingEpisodes = false;
+        controls.forEach(id => { $(id).disabled = false; });
         $("importEpisodesBtn").textContent = "Import Episodes to Database";
     }
 });
