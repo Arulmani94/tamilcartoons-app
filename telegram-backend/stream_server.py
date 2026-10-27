@@ -4,6 +4,7 @@ import secrets
 from urllib.parse import urlencode
 import logging
 import json
+import math
 import shutil
 import tempfile
 import time
@@ -122,6 +123,7 @@ async def lifespan(app):
         yield
     finally:
         tasks = [j['task'] for j in hls_jobs.values() if not j.get('finished')]
+        tasks += [j['duration_task'] for j in hls_jobs.values() if j.get('duration_task') and not j['duration_task'].done()]
         for task in tasks:
             task.cancel()
         if tasks:
@@ -169,8 +171,23 @@ def authorized_client(channel_id):
     return client, channel
 
 
+metadata_cache = {}
+
+
+def media_duration(media):
+    try:
+        duration = float(getattr(media, 'duration', 0) or 0)
+        return duration if math.isfinite(duration) and 0 < duration <= 86400 else None
+    except (TypeError, ValueError):
+        return None
+
+
 async def lookup_media(channel_id, message_id):
     client, channel = authorized_client(channel_id)
+    cache_key = (id(client), channel, message_id)
+    cached = metadata_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 60:
+        return client, cached[1], cached[2]
     try:
         message = await asyncio.wait_for(client.get_messages(channel, message_id), timeout=30)
     except FloodWait as exc:
@@ -183,18 +200,27 @@ async def lookup_media(channel_id, message_id):
     media = (getattr(message, 'video', None) or getattr(message, 'document', None)) if message else None
     if not media or not media.file_size:
         raise HTTPException(404, 'Message has no media file')
+    if len(metadata_cache) >= 128:
+        metadata_cache.pop(next(iter(metadata_cache)))
+    metadata_cache[cache_key] = (time.monotonic(), message, media, client)
     return client, message, media
 
 
+thumbnail_cache = {}
 thumbnail_slots = asyncio.Semaphore(4)
 
 
 @app.get('/thumbnail')
 async def thumbnail(channel_id: str = Query(..., max_length=40),
                     message_id: int = Query(..., ge=1, le=2147483647)):
+    client, channel = authorized_client(channel_id)
+    key = (channel, message_id)
+    cached = thumbnail_cache.get(key)
+    if cached and time.monotonic() - cached[0] < 600:
+        return Response(cached[1], media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=600'})
     client, message, media = await lookup_media(channel_id, message_id)
     thumbs = [t for t in (getattr(media, 'thumbs', None) or [])
-              if 0 < (getattr(t, 'file_size', 0) or 0) <= 1024 * 1024]
+              if (getattr(t, 'file_size', 0) or 0) <= 1024 * 1024]
     if not thumbs:
         raise HTTPException(404, 'This video has no Telegram thumbnail')
     thumb = max(thumbs, key=lambda t: getattr(t, 'width', 0) * getattr(t, 'height', 0))
@@ -209,6 +235,9 @@ async def thumbnail(channel_id: str = Query(..., max_length=40),
             file.close()
         if not data or len(data) > 1024 * 1024:
             raise HTTPException(502, 'Invalid thumbnail')
+        while thumbnail_cache and (len(thumbnail_cache) >= 64 or sum(len(item[1]) for item in thumbnail_cache.values()) + len(data) > 16 * 1024 * 1024):
+            thumbnail_cache.pop(next(iter(thumbnail_cache)))
+        thumbnail_cache[key] = (time.monotonic(), data)
         return Response(data, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff'})
     except FloodWait as exc:
         raise HTTPException(429, 'Telegram rate limit', headers={'Retry-After': str(exc.value)})
@@ -315,13 +344,20 @@ async def prepare_file(client, message, media, job):
         source.unlink(missing_ok=True)
         job['updated'] = time.monotonic()
 
+format_cache = {}
+
+
 @app.get('/media-info')
 async def media_info(channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647)):
     authorized_client(channel_id)
     existing = hls_jobs.get((str(channel_value(channel_id)), message_id))
     if existing and existing['state'] != 'error':
-        return {'needs_preparation': True, 'detected': 'hls_available'}
+        return {'needs_preparation': True, 'detected': 'hls_available', 'duration': existing.get('duration')}
     client, message, media = await lookup_media(channel_id, message_id)
+    cache_key = (id(client), str(channel_value(channel_id)), message_id)
+    cached = format_cache.get(cache_key)
+    if cached and time.monotonic() - cached['updated'] < 600:
+        return cached['response']
     stream = client.stream_media(message, offset=0, limit=1)
     try:
         first = await asyncio.wait_for(anext(stream), 30)
@@ -329,10 +365,37 @@ async def media_info(channel_id: str = Query(..., max_length=40), message_id: in
         raise HTTPException(504, 'Could not inspect video bytes')
     finally:
         await stream.aclose()
-    # Trust actual container bytes rather than Telegram MIME or filename.
+    # Inspect only the already-fetched first MiB for codec metadata. A partial TS
+    # sample's duration is NOT the episode duration.
     mp4 = len(first) >= 12 and first[4:8] == b'ftyp'
-    return {'needs_preparation': not mp4, 'detected': 'mp4' if mp4 else 'requires_mp4_conversion',
-            'mime': getattr(media, 'mime_type', None), 'size': media.file_size}
+    info = None
+    sample = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.media', delete=False) as file:
+            sample = Path(file.name)
+            file.write(first[:CHUNK_SIZE])
+        info = await asyncio.wait_for(probe_file(sample), 5)
+    except (RuntimeError, asyncio.TimeoutError, ValueError):
+        pass
+    finally:
+        if sample:
+            sample.unlink(missing_ok=True)
+    duration = media_duration(media)
+    if not duration and info:
+        container = info.get('format', {}).get('format_name', '')
+        if any(name in container for name in ('matroska', 'webm', 'mov,mp4')):
+            try:
+                candidate = float(info['format'].get('duration') or 0)
+                if math.isfinite(candidate) and 0 < candidate <= 86400:
+                    duration = candidate
+            except (TypeError, ValueError):
+                pass
+    response = {'needs_preparation': not mp4, 'detected': 'mp4' if mp4 else 'requires_mp4_conversion',
+                'mime': getattr(media, 'mime_type', None), 'size': media.file_size, 'duration': duration}
+    if len(format_cache) >= 128:
+        format_cache.pop(next(iter(format_cache)))
+    format_cache[cache_key] = {'updated': time.monotonic(), 'probe': info, 'response': response, 'client': client}
+    return response
 
 @app.get('/prepare')
 async def prepare(channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647), retry_failed: bool = False):
@@ -413,24 +476,86 @@ hls_lock = asyncio.Lock()
 HLS_ROOT = Path(tempfile.mkdtemp(prefix='tc-hls-'))
 
 
-def hls_args(source, folder):
-    return ['ffmpeg', '-v', 'error', '-nostdin', '-y',
+def stream_codecs(info):
+    streams = info.get('streams', [])
+    video = next((x for x in streams if x.get('codec_type') == 'video' and not x.get('disposition', {}).get('attached_pic')), None)
+    audio = next((x for x in streams if x.get('codec_type') == 'audio'), None)
+    if not video:
+        raise RuntimeError('This message has no video track')
+    copy_video = video.get('codec_name') == 'h264' and video.get('pix_fmt') in ('yuv420p', 'yuvj420p')
+    copy_audio = audio is None or audio.get('codec_name') == 'aac'
+    return copy_video, copy_audio
+
+
+async def probe_stream(source):
+    raw = await media_command('ffprobe', '-v', 'error', '-protocol_whitelist', 'http,tcp',
+            '-rw_timeout', '30000000', '-probesize', '2097152', '-analyzeduration', '2000000',
+            '-format_whitelist', PREP_FORMATS, '-show_streams', '-show_format', '-of', 'json', source, timeout=45)
+    return json.loads(raw)
+
+
+def hls_args(source, folder, info=None):
+    copy_video, copy_audio = stream_codecs(info) if info else (False, False)
+    args = ['ffmpeg', '-v', 'error', '-nostdin', '-y',
             '-protocol_whitelist', 'http,tcp', '-rw_timeout', '30000000',
             '-probesize', '2097152', '-analyzeduration', '2000000', '-format_whitelist', PREP_FORMATS, '-i', source,
-            '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25',
-            '-threads', '1', '-maxrate', '2000k', '-bufsize', '4000k', '-pix_fmt', 'yuv420p',
-            '-vf', "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
-            '-force_key_frames', 'expr:gte(t,n_forced*2)',
-            '-c:a', 'aac', '-b:a', '128k', '-f', 'hls', '-hls_time', '2',
-            '-hls_playlist_type', 'event', '-hls_flags', 'independent_segments+temp_file',
+            '-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn']
+    if copy_video:
+        args += ['-c:v', 'copy']
+    else:
+        args += ['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25',
+                 '-threads', '1', '-maxrate', '2000k', '-bufsize', '4000k', '-pix_fmt', 'yuv420p',
+                 '-vf', "scale=w='min(1280,iw)':h='min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+                 '-force_key_frames', 'expr:gte(t,n_forced*2)']
+    args += ['-c:a', 'copy'] if copy_audio else ['-c:a', 'aac', '-b:a', '128k']
+    return args + ['-f', 'hls', '-hls_time', '2', '-hls_playlist_type', 'event',
+            '-hls_flags', 'independent_segments+temp_file',
             '-hls_segment_filename', str(folder / 'seg%06d.ts'), str(folder / 'index.m3u8')]
+
+
+transcode_slot = asyncio.Semaphore(1)
+
+
+async def fill_stream_duration(job, source):
+    try:
+        info = await probe_stream(source)
+        duration = float(info.get('format', {}).get('duration') or 0)
+        if math.isfinite(duration) and 0 < duration <= 86400:
+            job['duration'] = duration
+    except (RuntimeError, asyncio.TimeoutError, ValueError, TypeError):
+        pass
 
 
 async def run_hls(job, source):
     process = None
+    slot_taken = False
     try:
-        process = await asyncio.create_subprocess_exec(*hls_args(source, job['folder']),
+        info = job.get('probe')
+        if info is None:
+            try:
+                info = await probe_stream(source)
+            except (RuntimeError, asyncio.TimeoutError):
+                info = None  # Try progressive decoding even if remote duration probing timed out.
+        if info:
+            copy_video, copy_audio = stream_codecs(info)
+            job['mode'] = 'remux' if copy_video and copy_audio else 'transcode'
+            try:
+                duration = float(info.get('format', {}).get('duration') or 0)
+                if not job.get('duration') and 'probe' not in job and math.isfinite(duration) and 0 < duration <= 86400:
+                    job['duration'] = duration
+            except (TypeError, ValueError):
+                pass
+        else:
+            copy_video, copy_audio = False, False
+            job['mode'] = 'transcode'
+        if not (copy_video and copy_audio):
+            job['state'] = 'queued'
+            await transcode_slot.acquire()
+            slot_taken = True
+            job['state'] = 'starting'
+        if not job.get('duration'):
+            job['duration_task'] = asyncio.create_task(fill_stream_duration(job, source))
+        process = await asyncio.create_subprocess_exec(*hls_args(source, job['folder'], info),
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
         job['process'] = process
         deadline = time.monotonic() + 7200
@@ -441,8 +566,11 @@ async def run_hls(job, source):
                 raise RuntimeError('Streaming cache limit reached')
             if shutil.disk_usage(HLS_ROOT).free < 128 * 1024 * 1024:
                 raise RuntimeError('Video server storage is full')
-            if (job['folder'] / 'index.m3u8').exists():
-                job['state'] = 'ready'
+            playlist = job['folder'] / 'index.m3u8'
+            if playlist.exists():
+                text = playlist.read_text()
+                if text.count('#EXTINF:') >= 3 or '#EXT-X-ENDLIST' in text:
+                    job['state'] = 'ready'
             await asyncio.sleep(.5)
         if process.returncode or not (job['folder'] / 'index.m3u8').exists():
             raise RuntimeError('This video could not be streamed. Check its source or upload an H.264/AAC MP4.')
@@ -453,6 +581,8 @@ async def run_hls(job, source):
         if process and process.returncode is None:
             process.kill()
             await process.wait()
+        if slot_taken:
+            transcode_slot.release()
         job['finished'] = True
         job['updated'] = time.monotonic()
 
@@ -469,13 +599,13 @@ async def start_stream(channel_id: str = Query(..., max_length=40),
             del hls_jobs[key]
             job = None
         if job is None:
-            await lookup_media(channel_id, message_id)
+            client, _, media = await lookup_media(channel_id, message_id)
             # Completed unused jobs expire. Never evict a job actively encoding.
             for oldkey, old in list(hls_jobs.items()):
                 if old.get('finished') and time.monotonic() - old['updated'] > 3600:
                     shutil.rmtree(old['folder'], ignore_errors=True)
                     del hls_jobs[oldkey]
-            if any(not j.get('finished') for j in hls_jobs.values()) or any(j['state'] not in ('ready', 'error') for j in prepared.values()):
+            if sum(not j.get('finished') for j in hls_jobs.values()) >= 2 or any(j['state'] not in ('ready', 'error') for j in prepared.values()):
                 return JSONResponse({'state': 'busy'}, status_code=202)
             used = sum(p.stat().st_size for p in HLS_ROOT.rglob('*') if p.is_file())
             if used > 512 * 1024 * 1024 or len(hls_jobs) >= 4:
@@ -485,12 +615,16 @@ async def start_stream(channel_id: str = Query(..., max_length=40),
             token = secrets.token_hex(16)
             folder = HLS_ROOT / token
             folder.mkdir()
-            job = {'token': token, 'folder': folder, 'state': 'starting', 'finished': False, 'updated': time.monotonic(), 'key': key}
+            job = {'token': token, 'folder': folder, 'state': 'starting', 'finished': False, 'updated': time.monotonic(), 'key': key, 'duration': media_duration(media)}
+            cached = format_cache.get((id(client), key[0], message_id))
+            if cached and time.monotonic() - cached['updated'] < 600:
+                job['probe'] = cached['probe']
+                job['duration'] = job['duration'] or cached['response'].get('duration')
             hls_jobs[key] = job
             source = 'http://127.0.0.1:' + os.getenv('PORT', '10000') + '/video?' + urlencode({'channel_id': key[0], 'message_id': message_id})
             job['task'] = asyncio.create_task(run_hls(job, source))
         job['updated'] = time.monotonic()
-        return {k: job[k] for k in ('state', 'token', 'error') if k in job}
+        return {k: job[k] for k in ('state', 'token', 'error', 'duration', 'mode') if k in job}
 
 
 @app.get('/hls/{token}/{filename}')

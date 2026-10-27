@@ -1,7 +1,7 @@
 'use strict';
 (async()=>{
  const {$,db,query,episodeColumns,allEpisodes,episodeUrl,esc,telegramIds}=TC;
- const video=$('video');let source='',originalSource='',compatibilityTried=false,preparing=false,wantsPlay=false,pageClosed=false;
+ const video=$('video');let source='',originalSource='',compatibilityTried=false,preparing=false,wantsPlay=false,pageClosed=false,totalDuration=0;
  function fail(text){$('videoLoading').style.display='none';$('playbackError').textContent=text;$('playbackError').hidden=false;$('status').textContent='Playback unavailable';$('retry').hidden=!source;}
  function connect(){if(!source)return;$('videoLoading').style.removeProperty('display');$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
  $('retry').addEventListener('click',()=>{if(originalSource)prepareCompatible(true);else location.reload();});
@@ -22,12 +22,13 @@
     const result=await response.json();
     if(!response.ok)throw new Error(result.detail||'Streaming server unavailable.');
     url.searchParams.delete('retry');
+    if(Number.isFinite(Number(result.duration))&&Number(result.duration)>0){totalDuration=Number(result.duration);renderTime();}
     if(result.state==='error')throw new Error(result.error||'Video stream failed.');
     if(result.state==='ready'){
      source=new URL('/hls/'+result.token+'/index.m3u8',originalSource).href;
      const tryPlay=()=>video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
      if(window.Hls&&Hls.isSupported()){
-      hlsPlayer=new Hls({startPosition:0,maxBufferLength:20,maxMaxBufferLength:40});
+      hlsPlayer=new Hls({startPosition:0,maxBufferLength:40,maxMaxBufferLength:60});
       hlsPlayer.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal)fail('Streaming error: '+(data.details||data.type)+'. Retry playback.');});
       hlsPlayer.on(Hls.Events.MANIFEST_PARSED,tryPlay);
       hlsPlayer.attachMedia(video);hlsPlayer.loadSource(source);
@@ -35,6 +36,7 @@
       video.src=source;video.load();video.addEventListener('canplay',tryPlay,{once:true});
      }else throw new Error('Use an updated Chrome, Edge, Firefox or Safari browser to play this stream.');
      $('status').textContent='Buffering…';
+     if(!totalDuration)refreshStreamDuration(url);
      return;
     }
     $('status').textContent=result.state==='busy'?'Video server busy. Waiting…':'Starting video…';
@@ -43,6 +45,12 @@
    if(!pageClosed)throw new Error('Video server is taking too long. Retry playback.');
   }catch(error){if(!pageClosed)fail(error.message);}
   finally{preparing=false;}
+ }
+ async function refreshStreamDuration(url){
+  for(let attempt=0;attempt<12&&!pageClosed&&!totalDuration;attempt++){
+   await new Promise(resolve=>setTimeout(resolve,5000));
+   try{const r=await fetch(url,{signal:AbortSignal.timeout(15000)});if(!r.ok)continue;const d=await r.json();if(Number(d.duration)>0){totalDuration=Number(d.duration);renderTime();}}catch{}
+  }
  }
  // Native fallback remains usable until custom controls have initialized.
  video.controls=false;$('customControls').hidden=false;$('centerActions').hidden=false;
@@ -59,7 +67,7 @@
  video.addEventListener('playing',showControls);video.addEventListener('pause',showControls);video.addEventListener('ended',showControls);
  function skip(seconds){
   const end=seekEnd();if(end<=0)return;
-  video.currentTime=Math.max(0,Math.min(end,video.currentTime+seconds));
+  if(!seekTo(video.currentTime+seconds))return;
   const feedback=$('seekFeedback');feedback.textContent=seconds>0?'10 seconds →':'← 10 seconds';feedback.dataset.side=seconds>0?'right':'left';feedback.hidden=false;
   clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>{feedback.hidden=true;},650);
  }
@@ -79,10 +87,18 @@
  video.addEventListener('seeked',()=>{$('status').textContent=video.readyState>=3?(video.paused?'Paused':'Playing'):'Buffering…';});
  video.addEventListener('canplay',()=>{$('status').textContent=video.paused?'Ready. Press Play to watch.':'Playing';});
  video.addEventListener('play',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';$('play').setAttribute('aria-label','Pause');$('miniPlay').textContent='Ⅱ';$('miniPlay').setAttribute('aria-label','Pause');});video.addEventListener('pause',()=>{$('play').innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';$('play').setAttribute('aria-label','Play');$('miniPlay').textContent='▶';$('miniPlay').setAttribute('aria-label','Play');});
- function seekEnd(){return Number.isFinite(video.duration)?video.duration:(video.seekable.length?video.seekable.end(video.seekable.length-1):0);}
- const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'0:00';
- video.addEventListener('timeupdate',()=>{$('time').textContent=clock(video.currentTime)+' / '+clock(seekEnd());const end=seekEnd();$('seek').value=end?video.currentTime/end*100:0;});
- $('seek').addEventListener('input',()=>{const end=seekEnd();if(end>0)video.currentTime=Number($('seek').value)/100*end;});
+ function seekEnd(){return totalDuration||(compatibilityTried?0:(Number.isFinite(video.duration)?video.duration:0));}
+ function availableEnd(){return compatibilityTried?(video.seekable.length?video.seekable.end(video.seekable.length-1):0):seekEnd();}
+ function seekTo(target){
+  const end=availableEnd();
+  if(target>end&&compatibilityTried){$('seekFeedback').textContent='This point is still preparing';$('seekFeedback').hidden=false;clearTimeout(feedbackTimer);feedbackTimer=setTimeout(()=>{$('seekFeedback').hidden=true;},2000);return false;}
+  if(end<=0)return false;
+  video.currentTime=Math.max(0,Math.min(end,target));return true;
+ }
+ const clock=s=>Number.isFinite(s)?Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'):'--:--';
+ function renderTime(){const end=seekEnd();$('time').textContent=clock(video.currentTime)+' / '+(end>0?clock(end):'--:--');$('seek').value=end?video.currentTime/end*100:0;}
+ for(const event of ['timeupdate','durationchange','loadedmetadata'])video.addEventListener(event,renderTime);
+ $('seek').addEventListener('input',()=>{const end=seekEnd();if(end>0)seekTo(Number($('seek').value)/100*end);renderTime();});
  $('mute').addEventListener('click',()=>{video.muted=!video.muted;});video.addEventListener('volumechange',()=>{$('mute').textContent=video.muted?'Unmute':'Mute';$('volume').value=video.volume;});
  $('volume').addEventListener('input',()=>{video.volume=Number($('volume').value);});$('speed').addEventListener('change',()=>{video.playbackRate=Number($('speed').value);});
  const stage=$('watchStage');
@@ -176,6 +192,7 @@
   if(inspected.status===504){await prepareCompatible();return;}
   if(!inspected.ok){const reasons={403:'This episode uses a Telegram channel that is not allowed. Edit its Telegram link in Admin; sample links will not play.',404:'The Telegram message has no accessible video.',503:'Video server is not ready. Retry shortly.'};throw new Error(reasons[inspected.status]||'Video server error (HTTP '+inspected.status+').');}
   const mediaInfo=await inspected.json();
+  if(Number(mediaInfo.duration)>0){totalDuration=Number(mediaInfo.duration);renderTime();}
   if(mediaInfo.needs_preparation)await prepareCompatible();else {connect();video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});}
  }catch(e){fail(e.message);}
 })();
