@@ -155,7 +155,7 @@ async def health():
                         status_code=200 if ready else 503)
 
 
-async def lookup_media(channel_id, message_id):
+def authorized_client(channel_id):
     try:
         channel = channel_value(channel_id)
     except ValueError as exc:
@@ -166,6 +166,11 @@ async def lookup_media(channel_id, message_id):
     client = getattr(app.state, 'telegram', None)
     if not getattr(app.state, 'ready', False) or not client or not client.is_connected:
         raise HTTPException(503, 'Telegram is not ready; check server configuration')
+    return client, channel
+
+
+async def lookup_media(channel_id, message_id):
+    client, channel = authorized_client(channel_id)
     try:
         message = await asyncio.wait_for(client.get_messages(channel, message_id), timeout=30)
     except FloodWait as exc:
@@ -312,6 +317,10 @@ async def prepare_file(client, message, media, job):
 
 @app.get('/media-info')
 async def media_info(channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647)):
+    authorized_client(channel_id)
+    existing = hls_jobs.get((str(channel_value(channel_id)), message_id))
+    if existing and existing['state'] != 'error':
+        return {'needs_preparation': True, 'detected': 'hls_available'}
     client, message, media = await lookup_media(channel_id, message_id)
     stream = client.stream_media(message, offset=0, limit=1)
     try:
@@ -451,7 +460,7 @@ async def run_hls(job, source):
 @app.get('/start-stream')
 async def start_stream(channel_id: str = Query(..., max_length=40),
                        message_id: int = Query(..., ge=1, le=2147483647), retry: bool = False):
-    await lookup_media(channel_id, message_id)
+    authorized_client(channel_id)
     key = (str(channel_value(channel_id)), message_id)
     async with hls_lock:
         job = hls_jobs.get(key)
@@ -460,6 +469,7 @@ async def start_stream(channel_id: str = Query(..., max_length=40),
             del hls_jobs[key]
             job = None
         if job is None:
+            await lookup_media(channel_id, message_id)
             # Completed unused jobs expire. Never evict a job actively encoding.
             for oldkey, old in list(hls_jobs.items()):
                 if old.get('finished') and time.monotonic() - old['updated'] > 3600:
@@ -490,7 +500,7 @@ async def hls_file(token: str, filename: str):
     job = next((j for j in hls_jobs.values() if j['token'] == token), None)
     if not job:
         raise HTTPException(404, 'Stream expired; reload episode')
-    await lookup_media(*job['key'])
+    authorized_client(job['key'][0])
     path = job['folder'] / filename
     try:
         data = path.read_bytes()

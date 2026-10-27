@@ -4,7 +4,7 @@
  const video=$('video');let source='',originalSource='',compatibilityTried=false,preparing=false,wantsPlay=false,pageClosed=false;
  function fail(text){$('videoLoading').style.display='none';$('playbackError').textContent=text;$('playbackError').hidden=false;$('status').textContent='Playback unavailable';$('retry').hidden=!source;}
  function connect(){if(!source)return;$('videoLoading').style.removeProperty('display');$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
- $('retry').addEventListener('click',()=>{if(compatibilityTried)prepareCompatible(true);else connect();});
+ $('retry').addEventListener('click',()=>{if(originalSource)prepareCompatible(true);else location.reload();});
  window.addEventListener('pagehide',()=>{pageClosed=true;});
  let hlsPlayer=null;
  window.addEventListener('pagehide',()=>{if(hlsPlayer)hlsPlayer.destroy();});
@@ -25,14 +25,16 @@
     if(result.state==='error')throw new Error(result.error||'Video stream failed.');
     if(result.state==='ready'){
      source=new URL('/hls/'+result.token+'/index.m3u8',originalSource).href;
-     if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=source;video.load();}
-     else if(window.Hls&&Hls.isSupported()){
+     const tryPlay=()=>video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
+     if(window.Hls&&Hls.isSupported()){
       hlsPlayer=new Hls({startPosition:0,maxBufferLength:20,maxMaxBufferLength:40});
-      hlsPlayer.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal)fail('Video connection interrupted. Retry playback.');});
-      hlsPlayer.loadSource(source);hlsPlayer.attachMedia(video);
+      hlsPlayer.on(Hls.Events.ERROR,(_,data)=>{if(data.fatal)fail('Streaming error: '+(data.details||data.type)+'. Retry playback.');});
+      hlsPlayer.on(Hls.Events.MANIFEST_PARSED,tryPlay);
+      hlsPlayer.attachMedia(video);hlsPlayer.loadSource(source);
+     }else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src=source;video.load();video.addEventListener('canplay',tryPlay,{once:true});
      }else throw new Error('Use an updated Chrome, Edge, Firefox or Safari browser to play this stream.');
      $('status').textContent='Buffering…';
-     video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
      return;
     }
     $('status').textContent=result.state==='busy'?'Video server busy. Waiting…':'Starting video…';
@@ -133,7 +135,7 @@
 
  video.addEventListener('waiting',()=>{$('status').textContent='Buffering…';});video.addEventListener('stalled',()=>{$('status').textContent='Connection stalled. Waiting for data…';});
  video.addEventListener('loadedmetadata',()=>{$('status').textContent='Ready. Press Play to watch.';});video.addEventListener('playing',()=>{$('status').textContent='Playing';$('playbackError').hidden=true;});video.addEventListener('ended',()=>{$('status').textContent='Episode finished. Choose the next episode.';});
- video.addEventListener('error',()=>{if(preparing)return;if(!compatibilityTried&&originalSource){prepareCompatible();return;}fail('The prepared video could not play. Retry; if this continues, check Render logs and whether the source file is damaged.');});
+ video.addEventListener('error',()=>{if(preparing||hlsPlayer)return;if(!compatibilityTried&&originalSource){prepareCompatible();return;}fail('The prepared video could not play. Retry; if this continues, check Render logs and whether the source file is damaged.');});
  const id=new URLSearchParams(location.search).get('episode_id');
  if(!id){fail('No episode selected. Open an episode from its anime detail page.');return;}
  try{
@@ -171,6 +173,7 @@
   $('status').textContent='Connecting to video server…';
   const inspectUrl=new URL(source);inspectUrl.pathname='/media-info';
   const inspected=await fetch(inspectUrl,{signal:AbortSignal.timeout(45000)});
+  if(inspected.status===504){await prepareCompatible();return;}
   if(!inspected.ok){const reasons={403:'This episode uses a Telegram channel that is not allowed. Edit its Telegram link in Admin; sample links will not play.',404:'The Telegram message has no accessible video.',503:'Video server is not ready. Retry shortly.'};throw new Error(reasons[inspected.status]||'Video server error (HTTP '+inspected.status+').');}
   const mediaInfo=await inspected.json();
   if(mediaInfo.needs_preparation)await prepareCompatible();else {connect();video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});}

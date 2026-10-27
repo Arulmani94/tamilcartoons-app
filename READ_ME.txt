@@ -1,30 +1,25 @@
-TamilCartoons V11: Progressive Streaming Fix
+V12 playback handoff + timeout fix
 
-Upload these files into the EXISTING GitHub repository, preserving their folder paths.
-Do not upload the ZIP itself or create a new top-level folder.
+Replace these THREE files in your existing GitHub repo, preserving paths:
+player.html
+assets/js/player.js
+telegram-backend/stream_server.py
 
-Replace player.html, assets/js/player.js, telegram-backend/stream_server.py,
-and telegram-backend/Dockerfile.
-Add assets/js/vendor/hls.min.js and assets/js/vendor/hls-LICENSE.
+Keep existing assets/js/vendor/hls.min.js from V11. Do not replace config.js or secrets.
+Commit. Deploy latest commit on Render and wait until Live.
+Wait for Vercel frontend deployment Ready. Hard refresh the video page.
 
-Commit all changes. Both Render backend and Vercel frontend must deploy latest commit.
-Render: Docker, root telegram-backend, one worker, port 10000 ($PORT).
-If auto-deploy is disabled: Manual Deploy > Deploy latest commit.
-Keep existing config.js, requirements.txt and environment variables.
-FRONTEND_ORIGINS must include https://tamilcartoons-app-seven.vercel.app
+Changes:
+Prefer Hls.js on MSE-capable browsers; native HLS remains fallback for Safari.
+Start playback after manifest parsing, rather than during media attachment.
+Let Hls.js own its playback errors; stale native video errors no longer replace its state.
+Retry restarts streaming instead of pointing the browser at the incompatible original.
+A format inspection timeout falls back to streaming startup.
+Reuse existing HLS jobs for metadata/startup. Serve generated segments without
+querying Telegram for each two-second segment; channel allowlist still checked.
 
-Browser-compatible MP4 streams directly. Other videos use HLS segments generated
-while Telegram bytes arrive. Playback starts before a complete source download.
-HLS starts at the beginning; seeking is limited to already-generated segments.
-The seekable timeline grows during processing. Compatibility encoding is capped
-at 720p with AAC audio. Autoplay may require tapping Play.
-
-Free Render cold starts, Telegram transfer speed and server CPU still affect speed.
-One compatibility encoder runs at once; viewers of the same episode share output.
-Different episodes can queue. Concurrent traffic needs a larger server and ideally
-pre-encoded persistent HLS storage/CDN. Cache is temporary and restarts regenerate it.
-Default generated output limit: 1 GiB. Damaged/DRM/unusual files may not work.
-
-Tests: 33 backend + 18 browser checks passed. Throttled HTTP input verified
-first playable H.264 segment appeared before the source transfer finished.
-Production Telegram playback must be verified after deployment.
+Verification: 35 backend tests passed, 18 browser regression tests passed.
+Real server first HLS segment fetched and ffprobe verified H.264/AAC.
+The extra actual H.264 browser decoding test was skipped because the local Chromium
+build lacks those codecs; production end-to-end playback remains to be verified
+after upload. No claim of live deployment or production playback confirmation.
