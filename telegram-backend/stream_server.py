@@ -395,9 +395,6 @@ async def prepared_video(request: Request, channel_id: str = Query(..., max_leng
             file.close()
     return StreamingResponse(body(), status_code=code, headers=headers)
 
-if __name__ == '__main__':
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=int(os.getenv('PORT', '10000')), workers=1, access_log=False)
 
 
 # Progressive HLS: publish each completed segment while Telegram is still feeding
@@ -502,3 +499,8 @@ async def hls_file(token: str, filename: str):
     job['updated'] = time.monotonic()
     return Response(data, media_type='application/vnd.apple.mpegurl' if filename.endswith('.m3u8') else 'video/mp2t',
                     headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=int(os.getenv('PORT', '10000')), workers=1, access_log=False)
