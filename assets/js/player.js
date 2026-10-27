@@ -1,13 +1,42 @@
 'use strict';
 (async()=>{
  const {$,db,query,episodeColumns,allEpisodes,episodeUrl,esc,telegramIds}=TC;
- const video=$('video');let source='';
+ const video=$('video');let source='',originalSource='',compatibilityTried=false,preparing=false,wantsPlay=false,pageClosed=false;
  function fail(text){$('playbackError').textContent=text;$('playbackError').hidden=false;$('status').textContent='Playback unavailable';$('retry').hidden=!source;}
  function connect(){if(!source)return;$('playbackError').hidden=true;$('retry').hidden=true;$('status').textContent='Connecting to video server…';video.src=source;video.load();}
- $('retry').addEventListener('click',connect);
+ $('retry').addEventListener('click',()=>{if(compatibilityTried)prepareCompatible(true);else connect();});
+ window.addEventListener('pagehide',()=>{pageClosed=true;});
+ async function prepareCompatible(retryFailed=false){
+  if(preparing||!originalSource)return;
+  compatibilityTried=true;preparing=true;$('playbackError').hidden=true;$('retry').hidden=true;
+  $('play').disabled=true;$('miniPlay').disabled=true;
+  video.removeAttribute('src');video.load();
+  const url=new URL(originalSource);url.pathname='/prepare';if(retryFailed)url.searchParams.set('retry_failed','true');
+  try{
+   const deadline=Date.now()+40*60*1000;
+   while(!pageClosed&&Date.now()<deadline){
+    const response=await fetch(url,{signal:AbortSignal.timeout(60000)});
+    let result;try{result=await response.json();}catch{throw new Error('Update the Render backend and Dockerfile for MP4/MKV compatibility.');}
+    if(!response.ok)throw new Error(result.detail||'Video preparation failed (HTTP '+response.status+').');
+    url.searchParams.delete('retry_failed');
+    if(result.state==='error')throw new Error(result.error||'Video conversion failed. Check Render logs.');
+    if(result.state==='ready'){
+     url.pathname='/prepared-video';source=url.href;connect();
+     if(wantsPlay)video.play().catch(()=>{$('status').textContent='Ready. Press Play to watch.';});
+     return;
+    }
+    if(result.state==='downloading'){$('videoLoading').classList.add('has-progress');$('videoLoading').style.setProperty('--load-progress',Math.max(0,Math.min(100,result.progress||0))+'%');}else $('videoLoading').classList.remove('has-progress');
+    const stages={downloading:'Preparing video: downloading '+(result.progress||0)+'%',inspecting:'Preparing video: checking actual format…',remuxing:'Preparing video: packaging as MP4…',transcoding:'Preparing video: converting codecs…',busy:'Preparing video: waiting for server…'};
+    $('status').textContent=stages[result.state]||'Preparing video…';
+    await new Promise(resolve=>setTimeout(resolve,2000));
+   }
+   if(!pageClosed)throw new Error('Preparation took too long. Retry later.');
+  }catch(error){if(!pageClosed)fail(error.message);}
+  finally{preparing=false;$('videoLoading').classList.remove('has-progress');$('play').disabled=false;$('miniPlay').disabled=false;}
+ }
  // Native fallback remains usable until custom controls have initialized.
  video.controls=false;$('customControls').hidden=false;$('centerActions').hidden=false;
- async function togglePlay(){try{if(video.paused)await video.play();else video.pause();}catch(e){fail('Could not start playback. Check the connection and media format.');}}
+ async function togglePlay(){if(preparing)return;wantsPlay=video.paused;try{if(video.paused)await video.play();else video.pause();}catch(e){if(e.name==='NotAllowedError'){fail('Press Play again to allow playback.');return;}await prepareCompatible();}}
  $('play').addEventListener('click',togglePlay);$('miniPlay').addEventListener('click',togglePlay);
  $('railPrev').addEventListener('click',()=>$('prev').click());$('railNext').addEventListener('click',()=>$('next').click());
  let idleTimer,tapTimer,lastTap=null,feedbackTimer;
@@ -34,7 +63,7 @@
   clearTimeout(tapTimer);lastTap={side,at:now};tapTimer=setTimeout(()=>{lastTap=null;toggleControls();},320);
  });
  const loading=$('videoLoading');
- function updateLoading(){const busy=/Loading|Checking|Connecting|Buffering|stalled|Seeking/i.test($('status').textContent);loading.hidden=!busy;$('watchStage').classList.toggle('is-buffering',busy);}
+ function updateLoading(){const busy=/Loading|Checking|Connecting|Buffering|stalled|Seeking|Preparing/i.test($('status').textContent);loading.hidden=!busy;$('watchStage').classList.toggle('is-buffering',busy);}
  new MutationObserver(updateLoading).observe($('status'),{childList:true,characterData:true,subtree:true});updateLoading();
  video.addEventListener('seeking',()=>{$('status').textContent='Seeking…';});
  video.addEventListener('seeked',()=>{$('status').textContent=video.readyState>=3?(video.paused?'Paused':'Playing'):'Buffering…';});
@@ -95,7 +124,7 @@
 
  video.addEventListener('waiting',()=>{$('status').textContent='Buffering…';});video.addEventListener('stalled',()=>{$('status').textContent='Connection stalled. Waiting for data…';});
  video.addEventListener('loadedmetadata',()=>{$('status').textContent='Ready. Press Play to watch.';});video.addEventListener('playing',()=>{$('status').textContent='Playing';$('playbackError').hidden=true;});video.addEventListener('ended',()=>{$('status').textContent='Episode finished. Choose the next episode.';});
- video.addEventListener('error',()=>{fail('Video playback failed. Check the server connection, Telegram access and browser codec support. MP4 with H.264/AAC is recommended; this backend does not transcode MKV or unsupported codecs.');});
+ video.addEventListener('error',()=>{if(preparing)return;if(!compatibilityTried&&originalSource){prepareCompatible();return;}fail('The prepared video could not play. Retry; if this continues, check Render logs and whether the source file is damaged.');});
  const id=new URLSearchParams(location.search).get('episode_id');
  if(!id){fail('No episode selected. Open an episode from its anime detail page.');return;}
  try{
@@ -129,7 +158,7 @@
   if(!TC_CONFIG.backendUrl)throw new Error('The administrator must set backendUrl in assets/js/config.js to the actual Render HTTPS service origin.');
   const base=new URL(TC_CONFIG.backendUrl);
   if(base.protocol!=='https:'||base.username||base.password||base.pathname!=='/'||base.search||base.hash)throw new Error('The production backend must be an HTTPS origin without a path.');
-  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;TC.videoPoster(video,ep,anime.poster_url);
+  const ids=telegramIds(ep);const url=new URL('/video',base);url.searchParams.set('channel_id',ids.channel);url.searchParams.set('message_id',ids.message);source=url.href;originalSource=source;TC.videoPoster(video,ep,anime.poster_url);
   // A bounded health check distinguishes configuration errors from codec errors.
   $('status').textContent='Checking video server…';
   try{const response=await fetch(new URL('/health',base),{signal:AbortSignal.timeout(75000)});if(!response.ok)throw new Error('Video server is not ready (HTTP '+response.status+'). Check Render logs and Telegram session.');const info=await response.json();if(!info.telegram_ready)throw new Error('Telegram session is not ready.');}
@@ -139,6 +168,10 @@
    const reasons={403:'This episode uses a Telegram channel that is not allowed. Edit its Telegram link in Admin; sample links will not play.',404:'The Telegram message has no accessible video. Check the episode link and channel access.',415:'This Telegram message is not a video file.',503:'Telegram is not ready. Check Render logs.'};
    fail(reasons[probe.status]||'Video request failed (HTTP '+probe.status+').');return;
   }
-  connect();
+  const inspectUrl=new URL(source);inspectUrl.pathname='/media-info';
+  const inspected=await fetch(inspectUrl,{signal:AbortSignal.timeout(45000)});
+  if(!inspected.ok)throw new Error('Update Render with the new stream_server.py and Dockerfile for format checking (HTTP '+inspected.status+').');
+  const mediaInfo=await inspected.json();
+  if(mediaInfo.needs_preparation)await prepareCompatible();else connect();
  }catch(e){fail(e.message);}
 })();

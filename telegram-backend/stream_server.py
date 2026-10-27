@@ -1,6 +1,11 @@
 """Bounded-memory Telegram byte streaming. One Uvicorn worker per session."""
 import asyncio
 import logging
+import json
+import shutil
+import tempfile
+import time
+from pathlib import Path
 import mimetypes
 import os
 import re
@@ -207,7 +212,9 @@ async def video(request: Request, channel_id: str = Query(..., max_length=40),
     client, message, media = await lookup_media(channel_id, message_id)
     size = media.file_size
     mime = getattr(media, 'mime_type', None) or mimetypes.guess_type(getattr(media, 'file_name', '') or '')[0] or 'application/octet-stream'
-    if not (mime.startswith('video/') or mime == 'application/octet-stream'):
+    extension = Path(getattr(media, 'file_name', '') or '').suffix.lower()
+    known_video = extension in {'.mp4', '.mkv', '.mov', '.avi', '.ts', '.m2ts', '.m4v', '.webm', '.wmv', '.mpeg', '.mpg', '.flv', '.3gp', '.vob', '.rm', '.rmvb'}
+    if not (mime.startswith('video/') or mime in {'application/octet-stream', 'application/x-matroska', 'application/mp4', 'application/mpeg'} or known_video):
         raise HTTPException(415, 'Message is not a video document')
     try:
         start, end, code = parse_range(request.headers.get('range'), size)
@@ -222,6 +229,164 @@ async def video(request: Request, channel_id: str = Query(..., max_length=40),
         return Response(status_code=code, headers=headers)
     return StreamingResponse(media_bytes(client, message, start, end, request), status_code=code, headers=headers)
 
+
+# One conversion at a time; temporary files are bounded and discarded on restart.
+PREP_ROOT = Path(tempfile.mkdtemp(prefix='tc-media-'))
+PREP_MAX = int(os.getenv('MEDIA_MAX_MB', '1024')) * 1024 * 1024
+PREP_FORMATS = 'mov,matroska,webm,mpegts,mpeg,mpegvideo,avi,flv,ogg,asf,m4v,hevc,h264,mjpeg,rm'
+prepared = {}
+prepare_lock = asyncio.Lock()
+
+async def media_command(*args, timeout=60):
+    process = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), timeout)
+        if process.returncode:
+            raise RuntimeError('Media processing failed; file may be damaged or encrypted')
+        return output
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+async def probe_file(path):
+    data = await media_command('ffprobe', '-v', 'error', '-protocol_whitelist', 'file,pipe',
+        '-format_whitelist', PREP_FORMATS, '-show_streams', '-show_format', '-of', 'json', str(path))
+    return json.loads(data)
+
+def conversion_args(info, source, target):
+    videos = [s for s in info.get('streams', []) if s.get('codec_type') == 'video' and not s.get('disposition', {}).get('attached_pic')]
+    audio = [s for s in info.get('streams', []) if s.get('codec_type') == 'audio']
+    if not videos:
+        raise RuntimeError('No playable video track in this Telegram file')
+    v = videos[0]
+    copy_video = v.get('codec_name') == 'h264' and v.get('pix_fmt') in ('yuv420p', 'yuvj420p')
+    args = ['ffmpeg', '-nostdin', '-v', 'error', '-y', '-threads', '1', '-protocol_whitelist', 'file,pipe',
+        '-format_whitelist', PREP_FORMATS, '-i', str(source), '-map', '0:' + str(v['index']), '-map', '0:a:0?', '-sn', '-dn']
+    args += ['-c:v', 'copy'] if copy_video else ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-pix_fmt', 'yuv420p', '-vf', 'scale=w=min(1280\\,iw):h=min(720\\,ih):force_original_aspect_ratio=decrease:force_divisible_by=2', '-threads', '1']
+    args += ['-c:a', 'copy'] if not audio or audio[0].get('codec_name') == 'aac' else ['-c:a', 'aac', '-b:a', '128k']
+    args += ['-movflags', '+faststart', '-fs', str(PREP_MAX), str(target)]
+    return args, copy_video
+
+async def prepare_file(client, message, media, job):
+    source, target = job['source'], job['target']
+    try:
+        async def download():
+            written = 0
+            async for chunk in client.stream_media(message):
+                written += len(chunk)
+                if written > PREP_MAX or written > media.file_size:
+                    raise RuntimeError('Source video exceeds preparation limit')
+                with source.open('ab') as file:
+                    file.write(chunk)
+                job['progress'] = min(99, int(written * 100 / media.file_size))
+            if written != media.file_size:
+                raise RuntimeError('Telegram download incomplete; try again later')
+        await asyncio.wait_for(download(), 900)
+        job['state'] = 'inspecting'
+        info = await probe_file(source)
+        args, copy_video = conversion_args(info, source, target)
+        job['state'] = 'remuxing' if copy_video else 'transcoding'
+        await media_command(*args, timeout=1800)
+        check = await probe_file(target)
+        before = float(info.get('format', {}).get('duration') or 0)
+        after = float(check.get('format', {}).get('duration') or 0)
+        if not target.exists() or target.stat().st_size >= PREP_MAX or (before and after < before - 2):
+            raise RuntimeError('Prepared video incomplete or exceeds limit')
+        job['state'], job['progress'] = 'ready', 100
+    except Exception as exc:
+        job['state'] = 'error'
+        job['error'] = str(exc) if isinstance(exc, RuntimeError) else 'Video preparation failed or timed out; check Render logs'
+        target.unlink(missing_ok=True)
+        log.warning('Video preparation failed: %s', type(exc).__name__)
+    finally:
+        source.unlink(missing_ok=True)
+        job['updated'] = time.monotonic()
+
+@app.get('/media-info')
+async def media_info(channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647)):
+    client, message, media = await lookup_media(channel_id, message_id)
+    stream = client.stream_media(message, offset=0, limit=1)
+    try:
+        first = await asyncio.wait_for(anext(stream), 30)
+    except (StopAsyncIteration, asyncio.TimeoutError):
+        raise HTTPException(504, 'Could not inspect video bytes')
+    finally:
+        await stream.aclose()
+    # Trust actual container bytes rather than Telegram MIME or filename.
+    mp4 = len(first) >= 12 and first[4:8] == b'ftyp'
+    return {'needs_preparation': not mp4, 'detected': 'mp4' if mp4 else 'requires_mp4_conversion',
+            'mime': getattr(media, 'mime_type', None), 'size': media.file_size}
+
+@app.get('/prepare')
+async def prepare(channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647), retry_failed: bool = False):
+    client, message, media = await lookup_media(channel_id, message_id)
+    key = (str(channel_value(channel_id)), message_id)
+    async with prepare_lock:
+        job = prepared.get(key)
+        if job and job['state'] == 'error' and retry_failed:
+            job['target'].unlink(missing_ok=True)
+            prepared.pop(key)
+            job = None
+        if job:
+            return {k: job[k] for k in ('state', 'progress', 'error') if k in job}
+        if any(j['state'] not in ('ready', 'error') for j in prepared.values()):
+            return JSONResponse({'state': 'busy', 'detail': 'Another video is being prepared. Waiting…'}, status_code=202)
+        if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
+            raise HTTPException(503, 'Deploy updated Dockerfile with FFmpeg before using compatibility playback')
+        if media.file_size > PREP_MAX:
+            raise HTTPException(413, 'File exceeds preparation size limit; convert it to H.264/AAC MP4 before uploading')
+        # Bound the completed cache as well as each source/output. Telegram originals are unchanged.
+        for old_key, old in list(prepared.items()):
+            if time.monotonic() - old['updated'] > 3600 or shutil.disk_usage(PREP_ROOT).free < media.file_size * 2 + 128 * 1024 * 1024:
+                old['target'].unlink(missing_ok=True)
+                prepared.pop(old_key)
+        while prepared and sum(j['target'].stat().st_size for j in prepared.values() if j['target'].exists()) + media.file_size * 2 > 1536 * 1024 * 1024:
+            oldest = min(prepared, key=lambda k: prepared[k]['updated'])
+            prepared.pop(oldest)['target'].unlink(missing_ok=True)
+        if len(prepared) >= 8:
+            old_key = min(prepared, key=lambda k: prepared[k]['updated'])
+            prepared.pop(old_key)['target'].unlink(missing_ok=True)
+        if shutil.disk_usage(PREP_ROOT).free < media.file_size * 2 + 128 * 1024 * 1024:
+            raise HTTPException(507, 'Not enough temporary storage to prepare this video')
+        folder = Path(tempfile.mkdtemp(dir=PREP_ROOT))
+        job = {'state': 'downloading', 'progress': 0, 'source': folder / 'source.media', 'target': folder / 'ready.mp4', 'updated': time.monotonic()}
+        prepared[key] = job
+        job['task'] = asyncio.create_task(prepare_file(client, message, media, job))
+        return {'state': 'downloading', 'progress': 0}
+
+@app.api_route('/prepared-video', methods=['GET', 'HEAD'])
+async def prepared_video(request: Request, channel_id: str = Query(..., max_length=40), message_id: int = Query(..., ge=1, le=2147483647)):
+    await lookup_media(channel_id, message_id)
+    job = prepared.get((str(channel_value(channel_id)), message_id))
+    if not job or job['state'] != 'ready' or not job['target'].exists():
+        raise HTTPException(409, 'Video is not prepared yet; retry playback to prepare it')
+    job['updated'] = time.monotonic()
+    try:
+        size = job['target'].stat().st_size
+        start, end, code = parse_range(request.headers.get('range'), size)
+    except ValueError:
+        raise HTTPException(416, 'Invalid byte range', headers={'Content-Range': f'bytes */{size}'})
+    headers = {'Content-Length': str(end - start + 1), 'Content-Type': 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store'}
+    if code == 206:
+        headers['Content-Range'] = f'bytes {start}-{end}/{size}'
+    if request.method == 'HEAD':
+        return Response(status_code=code, headers=headers)
+    # Open before yielding so cache eviction cannot remove an actively streamed file on Linux.
+    file = job['target'].open('rb')
+    async def body():
+        try:
+            file.seek(start)
+            remaining = end - start + 1
+            while remaining and not await request.is_disconnected():
+                chunk = file.read(min(256 * 1024, remaining))
+                if not chunk: break
+                remaining -= len(chunk)
+                yield chunk
+                await asyncio.sleep(0)
+        finally:
+            file.close()
+    return StreamingResponse(body(), status_code=code, headers=headers)
 
 if __name__ == '__main__':
     import uvicorn
